@@ -2,15 +2,19 @@
 package com.chicu.trader.trading;
 
 import com.chicu.trader.model.ProfitablePair;
+import com.chicu.trader.trading.context.StrategyContext;
+import com.chicu.trader.trading.event.TradingToggleEvent;
+import com.chicu.trader.bot.service.MenuEditor;
+import com.chicu.trader.trading.MarketDataService;
 import com.chicu.trader.model.TradeLog;
 import com.chicu.trader.repository.ProfitablePairRepository;
 import com.chicu.trader.repository.TradeLogRepository;
-import com.chicu.trader.trading.context.StrategyContext;
+import com.chicu.trader.trading.ml.MlTrainer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import reactor.core.Disposable;
-import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.Map;
@@ -21,73 +25,106 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class TradingEngine {
 
-    private final CandleService candleService;
-    private final StrategyFacade strategyFacade;
-    private final OrderService orderService;
-    private final RiskManager riskManager;
-    private final ProfitablePairRepository pairRepo;
-    private final TradeLogRepository logRepo;
+    private final CandleService             candleService;
+    private final StrategyFacade            strategyFacade;
+    private final OrderService              orderService;
+    private final RiskManager               riskManager;
+    private final TradingStatusService      statusService;
+    private final MenuEditor                menuEditor;
+    private final MarketDataService         marketDataService;
+    private final MlTrainer                 mlTrainer;
+    private final ProfitablePairRepository  pairRepo;
+    private final TradeLogRepository        logRepo;
 
-    // хранит подписки по chatId
     private final Map<Long, Disposable> streams = new ConcurrentHashMap<>();
 
-    /**
-     * Запускает автоторговлю: подписывается на часовые свечи,
-     * строит контексты и обрабатывает каждый.
-     */
+    @EventListener
+    public void onTradingToggle(TradingToggleEvent evt) {
+        Long chatId = evt.getChatId();
+        if (evt.isStart()) startAutoTrading(chatId);
+        else               stopAutoTrading(chatId);
+    }
+
     public void startAutoTrading(Long chatId) {
-        List<ProfitablePair> pairs = pairRepo.findByUserChatIdAndActiveTrue(chatId);
-        if (pairs.isEmpty()) {
-            log.warn("User {} has no active pairs, cannot start trading", chatId);
+        // 1) получаем список топ-5 по объёму
+        List<String> symbols = marketDataService.getTopNLiquidPairs(5);
+        if (symbols.isEmpty()) {
+            statusService.setLastEvent(chatId, "❌ Не удалось получить пары");
+            menuEditor.updateMenu(chatId, "ai_trading");
             return;
         }
 
-        strategyFacade.loadModel();
+        // 2) переобучаем модель
+        statusService.setLastEvent(chatId, "ℹ️ Переобучаю модель и TP/SL…");
+        menuEditor.updateMenu(chatId, "ai_trading");
+        try {
+            mlTrainer.trainNow(chatId);
+            statusService.setLastEvent(chatId, "✅ Модель и параметры обновлены");
+        } catch (Exception ex) {
+            log.error("Ошибка тренировки для {}", chatId, ex);
+            statusService.setLastEvent(chatId, "⚠️ Ошибка обучения");
+            menuEditor.updateMenu(chatId, "ai_trading");
+            return;
+        }
+        menuEditor.updateMenu(chatId, "ai_trading");
 
-        Flux<StrategyContext> stream = candleService
+        // 3) подписываемся на часовые свечи по активным парам из БД
+        List<ProfitablePair> pairs = pairRepo.findByUserChatIdAndActiveTrue(chatId);
+        Disposable sub = candleService
                 .streamHourly(chatId, pairs)
-                .map(candle -> strategyFacade.buildContext(chatId, candle, pairs));
+                .map(c -> strategyFacade.buildContext(chatId, c, pairs))
+                .subscribe(this::onNewCandle, err -> onError(chatId, err), () -> onComplete(chatId));
 
-        Disposable sub = stream.subscribe(this::onNewCandle);
         streams.put(chatId, sub);
-
-        log.info("Auto-trading started for user {}", chatId);
+        statusService.markRunning(chatId);
+        statusService.setLastEvent(chatId, "▶️ Торговля запущена на: " + String.join(", ", symbols));
+        menuEditor.updateMenu(chatId, "ai_trading");
+        log.info("Auto-trading started for {} on {}", chatId, symbols);
     }
 
-    /**
-     * Останавливает автоторговлю для пользователя.
-     */
     public void stopAutoTrading(Long chatId) {
         Disposable sub = streams.remove(chatId);
-        if (sub != null && !sub.isDisposed()) {
-            sub.dispose();
-            log.info("Auto-trading stopped for user {}", chatId);
-        }
+        if (sub != null && !sub.isDisposed()) sub.dispose();
+        statusService.markStopped(chatId);
+        statusService.setLastEvent(chatId, "⏹️ Торговля остановлена");
+        menuEditor.updateMenu(chatId, "ai_trading");
+        log.info("Auto-trading stopped for {}", chatId);
     }
 
-    /**
-     * Обработка каждой новой свечи в контексте стратегии.
-     */
     private void onNewCandle(StrategyContext ctx) {
         Long chatId = ctx.getChatId();
-
-        // Блокировка при просадке
         if (!riskManager.allowNewTrades(chatId)) {
+            statusService.setLastEvent(chatId, "⏸️ Пауза: просадка");
+            menuEditor.updateMenu(chatId, "ai_trading");
             return;
         }
 
-        // Открытие позиции
         if (strategyFacade.shouldEnter(ctx)) {
-            TradeLog entryLog = orderService.openPosition(ctx);
-            logRepo.save(entryLog);
-            log.info("Opened position for {} @ {}", ctx.getSymbol(), ctx.getPrice());
+            TradeLog entry = orderService.openPosition(ctx);
+            logRepo.save(entry);
+            statusService.setLastEvent(chatId,
+                    String.format("✅ Вход %s @ %.4f", ctx.getSymbol(), ctx.getPrice()));
+            menuEditor.updateMenu(chatId, "ai_trading");
         }
 
-        // Закрытие позиции (TP/SL или UpperBB)
-        orderService.checkAndClose(ctx)
-                .ifPresent(exitLog -> {
-                    logRepo.save(exitLog);
-                    log.info("Closed position for {} @ {}", ctx.getSymbol(), exitLog.getExitPrice());
-                });
+        orderService.checkAndClose(ctx).ifPresent(exitLog -> {
+            logRepo.save(exitLog);
+            statusService.setLastEvent(chatId,
+                    String.format("🔒 Выход %s @ %.4f (PnL=%.4f)",
+                            exitLog.getSymbol(), exitLog.getExitPrice(), exitLog.getPnl()));
+            menuEditor.updateMenu(chatId, "ai_trading");
+        });
+    }
+
+    private void onError(Long chatId, Throwable err) {
+        log.error("Stream error for {}", chatId, err);
+        statusService.setLastEvent(chatId, "⚠️ Ошибка потока");
+        menuEditor.updateMenu(chatId, "ai_trading");
+    }
+
+    private void onComplete(Long chatId) {
+        log.info("Stream completed for {}", chatId);
+        statusService.setLastEvent(chatId, "ℹ️ Поток завершён");
+        menuEditor.updateMenu(chatId, "ai_trading");
     }
 }

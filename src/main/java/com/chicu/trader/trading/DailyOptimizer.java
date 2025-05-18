@@ -27,25 +27,37 @@ public class DailyOptimizer {
      */
     @Scheduled(cron = "0 0 3 * * *", zone = "Europe/Warsaw")
     public void nightlyUpdate() {
-        List<ProfitablePair> pairs = pairRepo.findAll();
+        optimizeForChat(null);
+    }
+
+    /**
+     * Оптимизировать TP/SL и модель для одного chatId.
+     * Если chatId == null — для всех.
+     */
+    public void optimizeForChat(Long chatId) {
+        List<ProfitablePair> pairs =
+                (chatId == null)
+                        ? pairRepo.findAll()
+                        : pairRepo.findByUserChatId(chatId);
+
         for (ProfitablePair p : pairs) {
-            Long chatId = p.getUserChatId();
+            Long uid = p.getUserChatId();
             String symbol = p.getSymbol();
 
-            // Сбор исторических данных
-            List<Candle> hist120 = candleService.historyHourly(chatId, symbol, 120);
+            // 1) история
+            List<Candle> hist120 = candleService.historyHourly(uid, symbol, 120);
 
-            // Оптимизация TP/SL на этой истории
+            // 2) TP/SL
             TpSlOptimizer.Result r = optimizer.optimize(hist120);
 
-            // Сохраняем результаты
             p.setTakeProfitPct(r.getTpPct());
             p.setStopLossPct(r.getSlPct());
             p.setActive(r.getProfit() > 0);
             pairRepo.save(p);
         }
 
-        // Переобучаем ML-модель и экспортируем ONNX
+        // 3) ML
+        // если нужно обучать на отдельных чатах — передайте chatId
         modelTrainer.trainAndExport("models/ml_signal_filter.onnx");
     }
 }

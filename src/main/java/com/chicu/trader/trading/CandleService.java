@@ -8,12 +8,13 @@ import reactor.core.publisher.Flux;
 import java.util.List;
 
 public interface CandleService {
-    /** Паблишит новые часовые свечи для заданного пользователя и списка пар */
+
+    /** Живой поток часовых свечей по списку ProfitablePair */
     Flux<Candle> streamHourly(Long chatId, List<ProfitablePair> pairs);
 
-    /** Берёт историю часовых свечей по символу для пользователя */
-    List<Candle> historyHourly(Long chatId, String symbol, int count);
+    /** История часовых свечей для одного символа */
+    List<Candle> historyHourly(Long chatId, String symbol, int limit);
 
-    /** Берёт историю 4-часовых свечей по символу для пользователя */
-    List<Candle> history4h(Long chatId, String symbol, int count);
+    /** История 4-часовых свечей для одного символа */
+    List<Candle> history4h(Long chatId, String symbol, int limit);
 }

@@ -1,74 +1,88 @@
 // src/main/java/com/chicu/trader/trading/OrderService.java
 package com.chicu.trader.trading;
 
-import com.binance.connector.client.impl.SpotClientImpl;
-import com.chicu.trader.trading.binance.BinanceClientProvider;
+import com.chicu.trader.bot.service.ApiCredentials;
+import com.chicu.trader.bot.service.UserSettingsService;
 import com.chicu.trader.trading.context.StrategyContext;
-import com.chicu.trader.trading.model.TradeLogFactory;
+import com.chicu.trader.trading.util.SignatureUtil;
 import com.chicu.trader.model.TradeLog;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 public class OrderService {
 
-    private final BinanceClientProvider clientProvider;
+    private final WebClient.Builder   webClientBuilder;
+    private final UserSettingsService userSettings;
+    private final BalanceService      balanceService;
 
-    /**
-     * Открывает рыночную позицию и сразу выставляет OCO-ордера TP/SL.
-     * Возвращает лог входа.
-     */
+    private static final int MAX_SLOTS = 5;
+
     public TradeLog openPosition(StrategyContext ctx) {
-        SpotClientImpl rest = clientProvider.restClient(ctx.getChatId());
+        Long chatId = ctx.getChatId();
 
-        // 1. Market buy
-        LinkedHashMap<String, Object> buyParams = new LinkedHashMap<>();
-        buyParams.put("symbol", ctx.getSymbol());
-        buyParams.put("side", "BUY");
-        buyParams.put("type", "MARKET");
-        buyParams.put("quantity", ctx.getQuantity());
-        rest.createTrade().newOrder(buyParams);
+        // получаем из БД: apiKey, secretKey и режим (REAL или TESTNET)
+        ApiCredentials creds    = userSettings.getApiCredentials(chatId);
+        boolean        isTestnet = userSettings.isTestnet(chatId);
 
-        // 2. OCO Sell
-        LinkedHashMap<String, Object> ocoParams = new LinkedHashMap<>();
-        ocoParams.put("symbol", ctx.getSymbol());
-        ocoParams.put("side", "SELL");
-        ocoParams.put("quantity", ctx.getQuantity());
-        ocoParams.put("price", ctx.getTpPrice());
-        ocoParams.put("stopPrice", ctx.getSlPrice());
-        ocoParams.put("stopLimitPrice", ctx.getSlPrice());
-        ocoParams.put("stopLimitTimeInForce", "GTC");
-        rest.createTrade().ocoOrder(ocoParams);
+        // строим WebClient с нужным базовым URL и заголовком API key
+        String base = isTestnet
+                ? "https://testnet.binance.vision"
+                : "https://api.binance.com";
+        WebClient client = webClientBuilder
+                .baseUrl(base)
+                .defaultHeader("X-MBX-APIKEY", creds.getApiKey())
+                .build();
 
-        // 3. Формируем лог входа
-        return TradeLogFactory.createEntryLog(ctx);
+        // рассчитываем объёмы
+        String symbol      = ctx.getSymbol();
+        double price       = ctx.getPrice();
+        double available   = balanceService.getAvailableUsdt(chatId);
+        double usdtPerSlot = available / MAX_SLOTS;
+        double quantity    = usdtPerSlot / price;
+
+        // MARKET BUY
+        Map<String,String> buyParams = new LinkedHashMap<>();
+        buyParams.put("symbol",        symbol);
+        buyParams.put("side",          "BUY");
+        buyParams.put("type",          "MARKET");
+        buyParams.put("quoteOrderQty", String.format("%.2f", usdtPerSlot));
+        buyParams.put("timestamp",     String.valueOf(Instant.now().toEpochMilli()));
+        String buyQuery = SignatureUtil.sign(buyParams, creds.getSecretKey());
+        client.post()
+                .uri(uri -> uri.path("/api/v3/order").query(buyQuery).build())
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        // OCO SELL (TP/SL)
+        Map<String,String> ocoParams = new LinkedHashMap<>();
+        ocoParams.put("symbol",               symbol);
+        ocoParams.put("side",                 "SELL");
+        ocoParams.put("quantity",             String.format("%.6f", quantity));
+        ocoParams.put("price",                String.format("%.8f", ctx.getTpPrice()));
+        ocoParams.put("stopPrice",            String.format("%.8f", ctx.getSlPrice()));
+        ocoParams.put("stopLimitPrice",       String.format("%.8f", ctx.getSlPrice()));
+        ocoParams.put("stopLimitTimeInForce","GTC");
+        ocoParams.put("timestamp",            String.valueOf(Instant.now().toEpochMilli()));
+        String ocoQuery = SignatureUtil.sign(ocoParams, creds.getSecretKey());
+        client.post()
+                .uri(uri -> uri.path("/api/v3/order/oco").query(ocoQuery).build())
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        return ctx.toEntryLog();
     }
 
-    /**
-     * Проверяет условия закрытия и, если нужно, закрывает позицию продажей MARKET.
-     * Возвращает Optional<TradeLog> с записью выхода.
-     */
     public Optional<TradeLog> checkAndClose(StrategyContext ctx) {
-        Optional<TradeLog> exitLogOpt = TradeLogFactory.createExitLog(ctx);
-        if (exitLogOpt.isEmpty()) {
-            return Optional.empty();
-        }
-
-        SpotClientImpl rest = clientProvider.restClient(ctx.getChatId());
-        TradeLog exitLog = exitLogOpt.get();
-
-        // Market sell to close
-        LinkedHashMap<String, Object> sellParams = new LinkedHashMap<>();
-        sellParams.put("symbol", ctx.getSymbol());
-        sellParams.put("side", "SELL");
-        sellParams.put("type", "MARKET");
-        sellParams.put("quantity", ctx.getQuantity());
-        rest.createTrade().newOrder(sellParams);
-
-        return Optional.of(exitLog);
+        return ctx.getExitLog();
     }
 }

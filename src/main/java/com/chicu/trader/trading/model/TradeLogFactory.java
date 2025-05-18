@@ -3,18 +3,20 @@ package com.chicu.trader.trading.model;
 
 import com.chicu.trader.model.TradeLog;
 import com.chicu.trader.trading.context.StrategyContext;
-import lombok.experimental.UtilityClass;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.Optional;
 
-@UtilityClass
+@Component
+@RequiredArgsConstructor
 public class TradeLogFactory {
 
     /**
      * Создаёт запись входа по контексту стратегии.
      */
-    public TradeLog createEntryLog(StrategyContext ctx) {
+    public TradeLog createEntry(StrategyContext ctx) {
         return TradeLog.builder()
             .userChatId(ctx.getChatId())
             .symbol(ctx.getSymbol())
@@ -22,37 +24,33 @@ public class TradeLogFactory {
             .entryPrice(ctx.getPrice())
             .takeProfitPrice(ctx.getTpPrice())
             .stopLossPrice(ctx.getSlPrice())
-            .quantity(ctx.getQuantity())
             .isClosed(false)
             .build();
     }
 
     /**
-     * Создаёт запись выхода по контексту стратегии, если позиция закрыта.
-     * Возвращает Optional.empty(), если условий выхода не выполнено.
+     * Создаёт запись выхода по контексту и существующему лог-входу.
      */
-    public Optional<TradeLog> createExitLog(StrategyContext ctx) {
-        // Проверяем условия закрытия
-        boolean hitTp = ctx.getPrice() >= ctx.getTpPrice();
-        boolean hitSl = ctx.getPrice() <= ctx.getSlPrice();
-        boolean hitBb = ctx.shouldCloseByUpperBb();
-        if (!hitTp && !hitSl && !hitBb) {
+    public Optional<TradeLog> createExit(StrategyContext ctx, TradeLog entry) {
+        Optional<TradeLog> opt = ctx.getExitLog();
+        if (opt.isEmpty()) {
             return Optional.empty();
         }
-
-        double exitPrice = ctx.getPrice();
-        double pnl = (exitPrice - ctx.getPrice()) * ctx.getQuantity();
-
-        TradeLog log = TradeLog.builder()
-            .userChatId(ctx.getChatId())
-            .symbol(ctx.getSymbol())
-            .exitTime(Instant.ofEpochMilli(ctx.getCandle().getCloseTime()))
-            .exitPrice(exitPrice)
-            .pnl(pnl)
-            .quantity(ctx.getQuantity())
-            .isClosed(true)
-            .build();
-
-        return Optional.of(log);
+        TradeLog exit = opt.get();
+        // Заполняем поля из entry и выхода
+        return Optional.of(
+            TradeLog.builder()
+                .userChatId(ctx.getChatId())
+                .symbol(ctx.getSymbol())
+                .entryTime(entry.getEntryTime())
+                .entryPrice(entry.getEntryPrice())
+                .exitTime(exit.getExitTime())
+                .exitPrice(exit.getExitPrice())
+                .takeProfitPrice(entry.getTakeProfitPrice())
+                .stopLossPrice(entry.getStopLossPrice())
+                .pnl(exit.getPnl())
+                .isClosed(true)
+                .build()
+        );
     }
 }

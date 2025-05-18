@@ -9,12 +9,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Objects;
+import java.util.Optional;
+
 @Service
 @RequiredArgsConstructor
 public class UserSettingsService {
 
     private final UserSettingsRepository settingsRepo;
-    private final UserRepository userRepo;
+    private final UserRepository         userRepo;
 
     @Transactional
     public void setExchange(Long chatId, String exchange) {
@@ -37,8 +40,8 @@ public class UserSettingsService {
 
     public String getExchange(Long chatId) {
         return settingsRepo.findById(chatId)
-            .map(UserSettings::getExchange)
-            .orElse(null);
+                .map(UserSettings::getExchange)
+                .orElse(null);
     }
 
     @Transactional
@@ -62,21 +65,22 @@ public class UserSettingsService {
 
     public String getMode(Long chatId) {
         return settingsRepo.findById(chatId)
-            .map(UserSettings::getMode)
-            .orElse(null);
+                .map(UserSettings::getMode)
+                .orElse(null);
     }
 
     @Transactional
     public void setApiKey(Long chatId, String apiKey) {
         if (!settingsRepo.existsById(chatId)) {
-            // создаём skeleton
             User user = userRepo.findById(chatId)
                     .orElseGet(() -> userRepo.save(User.builder()
                             .chatId(chatId)
                             .tradingEnabled(false)
                             .build()));
             settingsRepo.save(UserSettings.builder()
-                    .chatId(chatId).user(user).build());
+                    .chatId(chatId)
+                    .user(user)
+                    .build());
         }
         settingsRepo.findById(chatId).ifPresent(s -> {
             if ("REAL".equalsIgnoreCase(s.getMode())) {
@@ -96,7 +100,9 @@ public class UserSettingsService {
                             .tradingEnabled(false)
                             .build()));
             settingsRepo.save(UserSettings.builder()
-                    .chatId(chatId).user(user).build());
+                    .chatId(chatId)
+                    .user(user)
+                    .build());
         }
         settingsRepo.findById(chatId).ifPresent(s -> {
             if ("REAL".equalsIgnoreCase(s.getMode())) {
@@ -109,21 +115,50 @@ public class UserSettingsService {
 
     public boolean hasCredentials(Long chatId) {
         return settingsRepo.findById(chatId)
-            .map(s -> s.hasCredentialsFor(s.getMode()))
-            .orElse(false);
+                .map(s -> s.hasCredentialsFor(s.getMode()))
+                .orElse(false);
     }
+
     /**
      * Проверяет, что для текущего режима у пользователя заданы оба ключа,
      * и при необходимости делает реальное подключение к API.
      */
     public boolean testConnection(Long chatId) {
-        // Простейшая проверка: есть ли оба ключа для текущего режима
-        boolean ok = settingsRepo.findById(chatId)
-                .map(s -> s.hasCredentialsFor(s.getMode()))
-                .orElse(false);
+        return hasCredentials(chatId);
+    }
 
-        // TODO: здесь можно добавить реальный вызов API биржи
-        return ok;
+    // === Добавленные методы: ApiCredentials и режим Testnet/Real ===
+
+
+
+    /**
+     * Возвращает ApiCredentials (apiKey + secretKey) для текущего режима пользователя.
+     */
+    public ApiCredentials getApiCredentials(Long chatId) {
+        UserSettings s = settingsRepo.findById(chatId)
+                .orElseThrow(() -> new IllegalStateException("No settings for chatId=" + chatId));
+        String mode = Optional.ofNullable(s.getMode()).orElse("REAL");
+        if ("TESTNET".equalsIgnoreCase(mode)) {
+            if (Objects.isNull(s.getTestApiKey()) || Objects.isNull(s.getTestSecretKey())) {
+                throw new IllegalStateException("Missing TESTNET credentials");
+            }
+            return new ApiCredentials(s.getTestApiKey(), s.getTestSecretKey());
+        } else {
+            if (Objects.isNull(s.getRealApiKey()) || Objects.isNull(s.getRealSecretKey())) {
+                throw new IllegalStateException("Missing REAL credentials");
+            }
+            return new ApiCredentials(s.getRealApiKey(), s.getRealSecretKey());
+        }
+    }
+
+    /**
+     * Возвращает true, если пользователь в режиме TESTNET.
+     */
+    public boolean isTestnet(Long chatId) {
+        return "TESTNET".equalsIgnoreCase(
+                settingsRepo.findById(chatId)
+                        .map(UserSettings::getMode)
+                        .orElse("REAL")
+        );
     }
 }
-
