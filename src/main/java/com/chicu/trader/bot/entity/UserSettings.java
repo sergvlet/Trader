@@ -42,6 +42,9 @@ public class UserSettings {
     @Column(name = "real_secret_key")
     private String realSecretKey;
 
+    private Double maxEquity;
+    private Long nextAllowedTradeTime;
+
     public boolean hasTestCredentials() {
         return testApiKey != null && testSecretKey != null;
     }
