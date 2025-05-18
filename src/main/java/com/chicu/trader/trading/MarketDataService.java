@@ -17,8 +17,8 @@ public class MarketDataService {
     public MarketDataService(WebClient.Builder builder) {
         // Builder уже настроен в WebClientConfig с увеличенным maxInMemorySize
         this.webClient = builder
-                .baseUrl("https://api.binance.com")
-                .build();
+            .baseUrl("https://api.binance.com")
+            .build();
     }
 
     /**
@@ -28,30 +28,30 @@ public class MarketDataService {
     public List<String> getTopNLiquidPairs(int n) {
         // 1) Запросим весь JSON как List<Object>
         List<Object> raw = webClient.get()
-                .uri("/api/v3/ticker/24hr")
-                .retrieve()
-                .bodyToMono(List.class)
-                .block();
+            .uri("/api/v3/ticker/24hr")
+            .retrieve()
+            .bodyToMono(List.class)
+            .block();
 
         // 2) Отфильтруем и приведём каждый элемент к Map<String,Object>
         List<Map<String, Object>> stats24 = raw.stream()
-                .filter(o -> o instanceof Map)
-                .map(o -> (Map<String, Object>) o)
-                .collect(Collectors.toList());
+            .filter(o -> o instanceof Map)
+            .map(o -> (Map<String, Object>) o)
+            .collect(Collectors.toList());
 
         // 3) Отберём USDT-пары, отсортируем по quoteVolume и вернём символы
         return stats24.stream()
-                .filter(entry -> {
-                    Object sym = entry.get("symbol");
-                    return sym instanceof String && ((String) sym).endsWith("USDT");
-                })
-                .sorted(Comparator.<Map<String, Object>>comparingDouble(entry -> {
-                    Object vol = entry.get("quoteVolume");
-                    String volStr = vol != null ? vol.toString() : "0";
-                    return Double.parseDouble(volStr);
-                }).reversed())
-                .limit(n)
-                .map(entry -> (String) entry.get("symbol"))
-                .collect(Collectors.toList());
+            .filter(entry -> {
+                Object sym = entry.get("symbol");
+                return sym instanceof String && ((String) sym).endsWith("USDT");
+            })
+            .sorted(Comparator.<Map<String, Object>>comparingDouble(entry -> {
+                Object vol = entry.get("quoteVolume");
+                String volStr = vol != null ? vol.toString() : "0";
+                return Double.parseDouble(volStr);
+            }).reversed())
+            .limit(n)
+            .map(entry -> (String) entry.get("symbol"))
+            .collect(Collectors.toList());
     }
 }
