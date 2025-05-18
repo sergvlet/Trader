@@ -1,14 +1,18 @@
-// src/main/java/com/chicu/trader/bot/command/CallbackCommand.java
 package com.chicu.trader.bot.command;
-
 
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.bots.AbsSender;
 
 public interface CallbackCommand {
-    /** ключ совпадает с callbackData кнопки, например "register" */
+    /**
+     * Ключ (callbackData), на который этот Command срабатывает
+     */
     String getKey();
 
-    /** выполняем логику (редактируем текущее сообщение или шлём новое) */
+    /**
+     * Обработать Update (callbackQuery). 
+     * @param update   входящий Update от Telegram
+     * @param sender   бот-объект для отправки сообщений
+     */
     void execute(Update update, AbsSender sender);
 }
