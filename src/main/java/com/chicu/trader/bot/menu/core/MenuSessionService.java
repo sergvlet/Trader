@@ -1,15 +1,16 @@
-package com.chicu.trader.bot.service;
+package com.chicu.trader.bot.menu.core;
 
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-@Service
+@Component
 public class MenuSessionService {
     // хранит для каждого chatId текущее messageId меню
-    private final ConcurrentHashMap<Long, Integer> menuMessages = new ConcurrentHashMap<>();
+    private final Map<Long, Integer> menuMessages = new ConcurrentHashMap<>();
 
     /** Возвращает messageId, под которым было отправлено меню этому пользователю */
     public Integer getMenuMessageId(Long chatId) {
@@ -22,7 +23,6 @@ public class MenuSessionService {
         return Optional.empty();
     }
 
-    // >>>>> ДОБАВЛЕНО ДЛЯ ТЕСТА <<<<<<
     /**
      * Регистрирует в службу, что меню этого пользователя было отправлено
      * и находится под этим messageId.
@@ -30,5 +30,17 @@ public class MenuSessionService {
      */
     public void createMenuMessage(Long chatId, int messageId) {
         menuMessages.put(chatId, messageId);
+    }
+
+    // Для постраничного вывода списка пар
+    private final Map<Long, Integer> pairsPageMap = new ConcurrentHashMap<>();
+
+    /** Получить текущую страницу списка пар */
+    public int getPairsPage(Long chatId) {
+        return pairsPageMap.getOrDefault(chatId, 0);
+    }
+    /** Установить страницу списка пар */
+    public void setPairsPage(Long chatId, int page) {
+        pairsPageMap.put(chatId, page);
     }
 }

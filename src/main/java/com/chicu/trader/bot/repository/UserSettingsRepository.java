@@ -10,6 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 public interface UserSettingsRepository extends JpaRepository<UserSettings, Long> {
 
+
+
     @Modifying
     @Transactional
     @Query("UPDATE UserSettings u SET u.exchange = :exchange WHERE u.chatId = :chatId")

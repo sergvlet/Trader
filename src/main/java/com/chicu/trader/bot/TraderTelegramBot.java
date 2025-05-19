@@ -4,7 +4,6 @@ package com.chicu.trader.bot;
 import com.chicu.trader.bot.command.CallbackCommand;
 import com.chicu.trader.bot.menu.core.MenuService;
 import com.chicu.trader.config.TelegramBotProperties;
-import com.chicu.trader.trading.event.TradingToggleEvent;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,10 +52,8 @@ public class TraderTelegramBot extends TelegramLongPollingBot {
             String data = update.getCallbackQuery().getData();
 
             if ("ai_trading:start".equals(data)) {
-                publisher.publishEvent(new TradingToggleEvent(chatId, true));
                 data = "ai_trading";
             } else if ("ai_trading:stop".equals(data)) {
-                publisher.publishEvent(new TradingToggleEvent(chatId, false));
                 data = "ai_trading";
             } else {
                 CallbackCommand cmd = callbackCommandMap.get(data);

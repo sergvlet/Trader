@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/bot/entity/AiTradingSettings.java
 package com.chicu.trader.bot.entity;
 
 import jakarta.persistence.*;
@@ -27,7 +26,7 @@ public class AiTradingSettings {
     @Column(name = "network_mode", length = 32)
     private String networkMode;
 
-    /** TP/SL в процентах (например "0.03,0.01") или в виде JSON */
+    /** TP/SL в процентах (например JSON {"tp":0.03,"sl":0.01}) */
     @Column(name = "tp_sl_config", length = 128)
     private String tpSlConfig;
 
@@ -43,7 +42,7 @@ public class AiTradingSettings {
     @Column(name = "top_n", nullable = false)
     private Integer topN = 5;
 
-    /** Порог риска (например максимально допустимая просадка в процентах) */
+    /** Процент баланса на сделку (в %) */
     @Column(name = "risk_threshold")
     private Double riskThreshold;
 
@@ -51,13 +50,43 @@ public class AiTradingSettings {
     @Column(name = "max_drawdown")
     private Double maxDrawdown;
 
-    /** Таймфрейм (например "HOURLY", "DAILY") */
+    /** Таймфрейм (например "1m", "4h", "1d") */
     @Column(name = "timeframe", length = 16)
     private String timeframe;
 
-    /** Биржевая комиссия в промилле или процентах */
+    /** Биржевая комиссия в процентах */
     @Column(name = "commission")
     private Double commission;
+
+    // Новые поля для расширенных настроек AI-режима
+
+    /** Максимальное число одновременных позиций */
+    @Column(name = "max_positions")
+    private Integer maxPositions;
+
+    /** Задержка между сделками (в минутах) */
+    @Column(name = "trade_cooldown")
+    private Integer tradeCooldown;
+
+    /** Допустимое проскальзывание (в %) */
+    @Column(name = "slippage_tolerance")
+    private Double slippageTolerance;
+
+    /** Тип ордера ("MARKET", "LIMIT" и т.п.) */
+    @Column(name = "order_type", length = 16)
+    private String orderType;
+
+    /** Включены ли уведомления о сделках */
+    @Column(name = "notifications_enabled")
+    private Boolean notificationsEnabled;
+
+    /** Версия ML-модели для сигналов */
+    @Column(name = "model_version", length = 64)
+    private String modelVersion;
+
+    /** Плечо (leverage) для маржинальной торговли */
+    @Column(name = "leverage")
+    private Integer leverage;
 
     /** Версия для оптимистичной блокировки */
     @Version

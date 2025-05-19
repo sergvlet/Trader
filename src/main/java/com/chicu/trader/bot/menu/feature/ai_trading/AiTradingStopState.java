@@ -2,7 +2,6 @@
 package com.chicu.trader.bot.menu.feature.ai_trading;
 
 import com.chicu.trader.bot.menu.core.MenuState;
-import com.chicu.trader.trading.event.TradingToggleEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -28,7 +27,6 @@ public class AiTradingStopState implements MenuState {
     @Override
     public String handleInput(org.telegram.telegrambots.meta.api.objects.Update update) {
         Long chatId = update.getCallbackQuery().getMessage().getChatId();
-        publisher.publishEvent(new TradingToggleEvent(chatId, false));
         return "ai_trading";
     }
 }

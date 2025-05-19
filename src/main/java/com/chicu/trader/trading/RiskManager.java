@@ -1,58 +1,47 @@
 // src/main/java/com/chicu/trader/trading/RiskManager.java
 package com.chicu.trader.trading;
 
-import com.chicu.trader.bot.entity.UserSettings;
-import com.chicu.trader.bot.repository.UserSettingsRepository;
+import com.chicu.trader.trading.service.AccountService;
+import com.chicu.trader.bot.service.AiTradingSettingsService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.Optional;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class RiskManager {
 
-    private final BalanceService balanceService;
-    private final UserSettingsRepository settingsRepo;
+    private final AccountService              accountService;
+    private final AiTradingSettingsService    settingsService;
 
     /**
-     * Разрешает новые сделки, если нет серьёзной просадки или блокировки по таймеру.
+     * Рассчитать количество лотов для открытия позиции,
+     * исходя из % баланса на сделку из настроек AI.
+     *
+     * @param chatId  чат пользователя
+     * @param symbol  торговая пара, например "BTCUSDT"
+     * @param price   текущая цена
+     * @return количество единиц базового актива, которое можно купить
      */
-    public boolean allowNewTrades(Long chatId) {
-        UserSettings settings = settingsRepo.findById(chatId)
-            .orElseThrow(() -> new IllegalStateException("No settings for user " + chatId));
+    public double calculatePositionSize(Long chatId, String symbol, double price) {
+        // Получаем баланс базового актива (например, USDT)
+        String baseAsset = symbol.replaceAll("[A-Z]+$", "");
+        double balance = accountService.getFreeBalance(chatId, baseAsset);
 
-        double currentEquity = balanceService.getAvailableUsdt(chatId);
-        // Если maxEquity ещё не задан — инициализируем
-        Double maxEquity = settings.getMaxEquity();
-        if (maxEquity == null) {
-            settings.setMaxEquity(currentEquity);
-            settingsRepo.save(settings);
-            maxEquity = currentEquity;
-        }
+        // Читаем % от депозита на сделку из настроек AI (например, 1.0 = 1%)
+        double riskPct = Optional.ofNullable(
+                settingsService.getOrCreate(chatId).getRiskThreshold()
+        ).orElse(1.0) / 100.0;
 
-        // Если текущий баланс превысил прошлый максимум — обновляем maxEquity
-        if (currentEquity > maxEquity) {
-            settings.setMaxEquity(currentEquity);
-            settingsRepo.save(settings);
-            maxEquity = currentEquity;
-        }
+        double alloc = balance * riskPct;
+        double quantity = alloc / price;
 
-        // Проверяем, заблокирован ли пользователь по времени
-        Long blockedUntil = settings.getNextAllowedTradeTime();
-        if (blockedUntil != null && blockedUntil > System.currentTimeMillis()) {
-            return false;
-        }
+        log.debug("Расчет размера позиции chatId={} symbol={} balance={} riskPct={} alloc={} quantity={}",
+                chatId, symbol, balance, riskPct, alloc, quantity);
 
-        // Если просадка более 10% — блокируем на 24 часа
-        if (currentEquity < maxEquity * 0.9) {
-            long unblockAt = System.currentTimeMillis() + Duration.ofHours(24).toMillis();
-            settings.setNextAllowedTradeTime(unblockAt);
-            settingsRepo.save(settings);
-            return false;
-        }
-
-        return true;
+        return quantity;
     }
 }

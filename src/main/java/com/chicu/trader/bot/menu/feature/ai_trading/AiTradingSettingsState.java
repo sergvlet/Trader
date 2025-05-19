@@ -10,14 +10,6 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 
 import java.util.List;
 
-/**
- * Подменю «⚙️ Настройки» AI-режима:
- *  - Сетевые настройки
- *  - TP/SL настройки
- *  - Режим реинвестирования
- *  - Дополнительные настройки
- *  - Назад
- */
 @Component
 public class AiTradingSettingsState implements MenuState {
 
@@ -34,39 +26,68 @@ public class AiTradingSettingsState implements MenuState {
                 .callbackData("ai_trading_settings_tp_sl")
                 .build();
 
-        InlineKeyboardButton reinvestBtn = InlineKeyboardButton.builder()
-                .text("🔄 Режим реинвестирования")
-                .callbackData("ai_trading_settings_reinvest")
-                .build();
-
-        // Новые пункты
         InlineKeyboardButton pairsBtn = InlineKeyboardButton.builder()
                 .text("🔧 Изменить пары")
                 .callbackData("ai_trading_settings_pairs")
                 .build();
+
         InlineKeyboardButton topNBtn = InlineKeyboardButton.builder()
-                .text("🔢 Top N")
+                .text("🔢 Кол-во пар")
                 .callbackData("ai_trading_settings_topn")
                 .build();
+
         InlineKeyboardButton riskBtn = InlineKeyboardButton.builder()
                 .text("⚠️ Риск")
                 .callbackData("ai_trading_settings_risk")
                 .build();
+
         InlineKeyboardButton drawdownBtn = InlineKeyboardButton.builder()
                 .text("📉 Макс. просадка")
                 .callbackData("ai_trading_settings_drawdown")
                 .build();
+
         InlineKeyboardButton timeframeBtn = InlineKeyboardButton.builder()
                 .text("⏱ Таймфрейм")
                 .callbackData("ai_trading_settings_timeframe")
                 .build();
-        InlineKeyboardButton commissionBtn = InlineKeyboardButton.builder()
-                .text("💰 Комиссия")
-                .callbackData("ai_trading_settings_commission")
+
+        InlineKeyboardButton maxPosBtn = InlineKeyboardButton.builder()
+                .text("🔀 Макс. позиций")
+                .callbackData("ai_trading_settings_max_positions")
                 .build();
-        InlineKeyboardButton showAllBtn = InlineKeyboardButton.builder()
-                .text("⚙️ Показать всё")
-                .callbackData("ai_trading_settings_showall")
+
+        InlineKeyboardButton cooldownBtn = InlineKeyboardButton.builder()
+                .text("⏳ Задержка между сделками")
+                .callbackData("ai_trading_settings_trade_cooldown")
+                .build();
+
+        InlineKeyboardButton slippageBtn = InlineKeyboardButton.builder()
+                .text("💧 Проскальзывание")
+                .callbackData("ai_trading_settings_slippage_tolerance")
+                .build();
+
+        InlineKeyboardButton orderTypeBtn = InlineKeyboardButton.builder()
+                .text("📋 Тип ордера")
+                .callbackData("ai_trading_settings_order_type")
+                .build();
+
+        InlineKeyboardButton notificationsBtn = InlineKeyboardButton.builder()
+                .text("🔔 Уведомления")
+                .callbackData("ai_trading_settings_notifications_toggle")
+                .build();
+
+        InlineKeyboardButton modelVersionBtn = InlineKeyboardButton.builder()
+                .text("🧠 Версия модели")
+                .callbackData("ai_trading_settings_model_version")
+                .build();
+
+        InlineKeyboardButton leverageBtn = InlineKeyboardButton.builder()
+                .text("📈 Плечо")
+                .callbackData("ai_trading_settings_leverage")
+                .build();
+        InlineKeyboardButton backtestBtn = InlineKeyboardButton.builder()
+                .text("🔬 Backtesting")
+                .callbackData("ai_trading_settings_backtesting")
                 .build();
 
         InlineKeyboardButton backBtn = InlineKeyboardButton.builder()
@@ -78,11 +99,14 @@ public class AiTradingSettingsState implements MenuState {
                 .keyboard(List.of(
                         List.of(networkBtn),
                         List.of(tpSlBtn),
-                        List.of(reinvestBtn),
                         List.of(pairsBtn, topNBtn),
                         List.of(riskBtn, drawdownBtn),
-                        List.of(timeframeBtn, commissionBtn),
-                        List.of(showAllBtn),
+                        List.of(timeframeBtn),
+                        List.of(maxPosBtn, cooldownBtn),
+                        List.of(slippageBtn, orderTypeBtn),
+                        List.of(notificationsBtn, modelVersionBtn),
+                        List.of(leverageBtn),
+                        List.of(backtestBtn),
                         List.of(backBtn)
                 ))
                 .build();
@@ -110,43 +134,24 @@ public class AiTradingSettingsState implements MenuState {
             return name();
         }
         String data = update.getCallbackQuery().getData();
-        switch (data) {
-            case "network_settings" -> {
-                return "network_settings";
-            }
-            case "ai_trading_settings_tp_sl" -> {
-                return "ai_trading_settings_tp_sl";
-            }
-            case "ai_trading_settings_reinvest" -> {
-                return "ai_trading_settings_reinvest";
-            }
-            case "ai_trading_settings_pairs" -> {
-                return "ai_trading_settings_pairs";
-            }
-            case "ai_trading_settings_topn" -> {
-                return "ai_trading_settings_topn";
-            }
-            case "ai_trading_settings_risk" -> {
-                return "ai_trading_settings_risk";
-            }
-            case "ai_trading_settings_drawdown" -> {
-                return "ai_trading_settings_drawdown";
-            }
-            case "ai_trading_settings_timeframe" -> {
-                return "ai_trading_settings_timeframe";
-            }
-            case "ai_trading_settings_commission" -> {
-                return "ai_trading_settings_commission";
-            }
-            case "ai_trading_settings_showall" -> {
-                return "ai_trading_settings_showall";
-            }
-            case "ai_trading" -> {
-                return MenuService.BACK;
-            }
-            default -> {
-                return name();
-            }
-        }
+        return switch (data) {
+            case "network_settings" -> "network_settings";
+            case "ai_trading_settings_tp_sl" -> "ai_trading_settings_tp_sl";
+            case "ai_trading_settings_pairs" -> "ai_trading_settings_pairs";
+            case "ai_trading_settings_topn" -> "ai_trading_settings_topn";
+            case "ai_trading_settings_risk" -> "ai_trading_settings_risk";
+            case "ai_trading_settings_drawdown" -> "ai_trading_settings_drawdown";
+            case "ai_trading_settings_timeframe" -> "ai_trading_settings_timeframe";
+            case "ai_trading_settings_max_positions" -> "ai_trading_settings_max_positions";
+            case "ai_trading_settings_trade_cooldown" -> "ai_trading_settings_trade_cooldown";
+            case "ai_trading_settings_slippage_tolerance" -> "ai_trading_settings_slippage_tolerance";
+            case "ai_trading_settings_order_type" -> "ai_trading_settings_order_type";
+            case "ai_trading_settings_notifications_toggle" -> "ai_trading_settings_notifications_toggle";
+            case "ai_trading_settings_model_version" -> "ai_trading_settings_model_version";
+            case "ai_trading_settings_leverage" -> "ai_trading_settings_leverage";
+            case "ai_trading_settings_backtesting" -> "ai_trading_settings_backtesting";
+            case "ai_trading" -> MenuService.BACK;
+            default -> name();
+        };
     }
 }

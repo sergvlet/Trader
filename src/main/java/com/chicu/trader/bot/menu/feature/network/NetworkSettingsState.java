@@ -54,7 +54,7 @@ public class NetworkSettingsState implements MenuState {
                 .build();
         InlineKeyboardButton backBtn = InlineKeyboardButton.builder()
                 .text("‹ Назад")
-                .callbackData(MenuService.BACK)
+                .callbackData("ai_trading_settings")
                 .build();
 
         InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder()
@@ -88,22 +88,23 @@ public class NetworkSettingsState implements MenuState {
     public String handleInput(Update update) {
         if (!update.hasCallbackQuery()) return name();
         String data = update.getCallbackQuery().getData();
-        Long chatId = update.getCallbackQuery().getMessage().getChatId();
 
-        switch (data) {
-            case "network_select_exchange":
-                return "network_select_exchange";
-            case "network_select_mode":
-                return "network_select_mode";
-            case "network_enter_api":
-                if (settings.getExchange(chatId) == null) {
-                    return "network_select_exchange";
-                }
-                return "network_enter_api";
-            case MenuService.BACK:
-                return MenuService.BACK;
-            default:
-                return name();
+        // возвращаем в меню AI-настроек
+        if ("ai_trading_settings".equals(data)) {
+            return "ai_trading_settings";
         }
+
+        Long chatId = update.getCallbackQuery().getMessage().getChatId();
+        return switch (data) {
+            case "network_select_exchange" -> "network_select_exchange";
+            case "network_select_mode"     -> "network_select_mode";
+            case "network_enter_api"       -> {
+                if (settings.getExchange(chatId) == null) {
+                    yield "network_select_exchange";
+                }
+                yield "network_enter_api";
+            }
+            default -> name();
+        };
     }
 }

@@ -8,11 +8,23 @@ import java.util.List;
  * Интерфейс для оптимизации параметров TP/SL по истории свечей.
  */
 public interface TpSlOptimizer {
+
     /**
+     * Оптимизировать TP/SL по списку свечей.
+     *
      * @param history Список свечей (chronological order)
      * @return Результат оптимизации: tpPct, slPct, profit
      */
     Result optimize(List<Candle> history);
+
+    /**
+     * Оптимизировать TP/SL для конкретного пользователя по его chatId.
+     * Реализация может загрузить историю через CandleService.
+     *
+     * @param chatId Идентификатор чата пользователя
+     * @return Результат оптимизации: tpPct, slPct, profit
+     */
+    Result optimize(Long chatId);
 
     /**
      * Результат оптимизации: доли (0.03 = 3%), и получившийся profit.

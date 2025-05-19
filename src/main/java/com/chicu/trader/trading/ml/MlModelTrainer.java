@@ -1,12 +1,11 @@
-// src/main/java/com/chicu/trader/trading/ml/MlModelTrainer.java
 package com.chicu.trader.trading.ml;
 
 /**
- * Интерфейс для тренировки ML-модели и экспорта в ONNX.
+ * Интерфейс тренировки ML-модели.
  */
 public interface MlModelTrainer {
     /**
-     * Обучить модель и записать её в файл onnxPath.
+     * Обучить модель для chatId и сохранить артефакт по пути modelPath.
      */
-    void trainAndExport(String onnxPath);
+    void trainAndExport(Long chatId, String modelPath) throws MlTrainingException;
 }

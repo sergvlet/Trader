@@ -42,6 +42,14 @@ public class UserSettings {
     @Column(name = "real_secret_key")
     private String realSecretKey;
 
+    @Column(
+            name = "ai_trading_enabled",
+            nullable = false,
+            columnDefinition = "boolean not null default false"
+    )
+    private Boolean aiTradingEnabled = false;
+
+
     private Double maxEquity;
     private Long nextAllowedTradeTime;
 

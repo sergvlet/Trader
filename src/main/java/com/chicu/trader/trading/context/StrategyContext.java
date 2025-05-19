@@ -1,11 +1,13 @@
 // src/main/java/com/chicu/trader/trading/context/StrategyContext.java
 package com.chicu.trader.trading.context;
 
-import com.chicu.trader.model.ProfitablePair;
-import com.chicu.trader.trading.CandleService;
+import com.chicu.trader.model.TradeLog;
 import com.chicu.trader.trading.indicator.IndicatorService;
-import com.chicu.trader.trading.ml.MlSignalFilter;
 import com.chicu.trader.trading.model.Candle;
+import com.chicu.trader.trading.model.MarketData;
+import com.chicu.trader.trading.model.MarketSignal;
+import com.chicu.trader.trading.ml.MlSignalFilter;
+import com.chicu.trader.trading.service.CandleService;
 import lombok.Getter;
 
 import java.time.Instant;
@@ -22,14 +24,14 @@ public class StrategyContext {
     private final double tpPrice;
     private final double slPrice;
 
-    private final CandleService candleService;
+    private final CandleService    candleService;
     private final IndicatorService indicators;
-    private final MlSignalFilter mlFilter;
-    private final List<ProfitablePair> symbols;  // изменено на List<String>
+    private final MlSignalFilter   mlFilter;
+    private final List<String>     symbols;
 
     public StrategyContext(Long chatId,
                            Candle candle,
-                           List<ProfitablePair> symbols,
+                           List<String> symbols,
                            CandleService candleService,
                            IndicatorService indicators,
                            MlSignalFilter mlFilter) {
@@ -43,7 +45,6 @@ public class StrategyContext {
         this.symbol = candle.getSymbol();
         this.price  = candle.getClose();
 
-        // ATR + TP/SL
         var hist14 = candleService.historyHourly(chatId, symbol, 14);
         double atr   = indicators.atr(hist14, 14);
         double tpPct = Math.max(2.5 * atr / price, 0.03);
@@ -54,8 +55,21 @@ public class StrategyContext {
 
     public boolean passesMlFilter() {
         var hist = candleService.historyHourly(chatId, symbol, 120);
-        var feats= indicators.buildFeatures(hist);
-        return mlFilter.shouldEnter(feats);
+        double[][] feats = indicators.buildFeatures(hist);
+        float[] flat     = flatten(feats);
+        MarketSignal signal = mlFilter.predict(chatId, new MarketData(flat));
+        return signal == MarketSignal.BUY;
+    }
+
+    private float[] flatten(double[][] array) {
+        int rows = array.length, cols = array[0].length;
+        float[] flat = new float[rows * cols];
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < cols; j++) {
+                flat[i * cols + j] = (float) array[i][j];
+            }
+        }
+        return flat;
     }
 
     public boolean passesVolume() {
@@ -81,32 +95,32 @@ public class StrategyContext {
         return price > upperBb;
     }
 
-    public com.chicu.trader.model.TradeLog toEntryLog() {
-        return com.chicu.trader.model.TradeLog.builder()
-            .userChatId(chatId)
-            .symbol(symbol)
-            .entryTime(Instant.ofEpochMilli(candle.getCloseTime()))
-            .entryPrice(price)
-            .takeProfitPrice(tpPrice)
-            .stopLossPrice(slPrice)
-            .isClosed(false)
-            .build();
+    public TradeLog toEntryLog() {
+        return TradeLog.builder()
+                .userChatId(chatId)
+                .symbol(symbol)
+                .entryTime(Instant.ofEpochMilli(candle.getCloseTime()))
+                .entryPrice(price)
+                .takeProfitPrice(tpPrice)
+                .stopLossPrice(slPrice)
+                .isClosed(false)
+                .build();
     }
 
-    public Optional<com.chicu.trader.model.TradeLog> getExitLog() {
+    public Optional<TradeLog> getExitLog() {
         boolean hitTp = price >= tpPrice;
         boolean hitSl = price <= slPrice;
         boolean hitBb = shouldCloseByUpperBb();
         if (hitTp || hitSl || hitBb) {
             double exitPrice = price;
-            var log = com.chicu.trader.model.TradeLog.builder()
-                .userChatId(chatId)
-                .symbol(symbol)
-                .exitTime(Instant.ofEpochMilli(candle.getCloseTime()))
-                .exitPrice(exitPrice)
-                .pnl(exitPrice - /* entryPrice from db */ 0)
-                .isClosed(true)
-                .build();
+            TradeLog log = TradeLog.builder()
+                    .userChatId(chatId)
+                    .symbol(symbol)
+                    .exitTime(Instant.ofEpochMilli(candle.getCloseTime()))
+                    .exitPrice(exitPrice)
+                    .pnl(exitPrice - /* entryPrice from db */ 0)
+                    .isClosed(true)
+                    .build();
             return Optional.of(log);
         }
         return Optional.empty();

@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/bot/menu/feature/ai_trading/tp_sl/AiTradingTpSlState.java
 package com.chicu.trader.bot.menu.feature.ai_trading.tp_sl;
 
 import com.chicu.trader.bot.menu.core.MenuState;
@@ -84,10 +83,17 @@ public class AiTradingTpSlState implements MenuState {
             tp = node.path("tp").asDouble();
             sl = node.path("sl").asDouble();
         } catch (Exception ignore) { }
-        String text = String.format(
-                "*TP/SL Настройки*\nTP: %.2f%%\nSL: %.2f%%\n\nВыберите действие:",
-                tp * 100, sl * 100
+
+        // Добавили описание сразу перед показом текущих значений
+        String text = String.join("\n",
+            "🎯 *Take-Profit* — целевая цена для фиксации прибыли",
+            "🚨 *Stop-Loss*   — цена срабатывания стоп-лосса для ограничения убытков",
+            "",
+            String.format("*TP/SL Настройки:*\nTP: `%.2f%%`\nSL: `%.2f%%`", tp * 100, sl * 100),
+            "",
+            "Выберите действие:"
         );
+
         return SendMessage.builder()
                 .chatId(chatId.toString())
                 .text(text)

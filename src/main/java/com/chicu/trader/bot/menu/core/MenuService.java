@@ -14,7 +14,7 @@ public class MenuService {
     public static final String BACK = "BACK";
     public static final String MAIN_MENU = "MAIN_MENU";
     public static final String STATE_NETWORK_SETTINGS = "network_settings";
-
+    public static final String STATE_AI_TRADING_SETTINGS_TP_SL = "ai_trading_settings_tp_sl";
     private final List<MenuState> states;
     private final Map<Long, String> currentStateMap = new ConcurrentHashMap<>();
     private final Map<Long, String> notices = new ConcurrentHashMap<>();

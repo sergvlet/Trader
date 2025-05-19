@@ -9,6 +9,7 @@ import java.util.List;
 
 public interface ProfitablePairRepository extends JpaRepository<ProfitablePair, Long> {
 
+
     /**
      * Все пары (включённые и выключенные) для данного пользователя.
      */

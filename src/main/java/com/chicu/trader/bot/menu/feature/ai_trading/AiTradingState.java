@@ -3,9 +3,9 @@ package com.chicu.trader.bot.menu.feature.ai_trading;
 
 import com.chicu.trader.bot.menu.core.MenuService;
 import com.chicu.trader.bot.menu.core.MenuState;
+import com.chicu.trader.bot.service.AiTradingService;
 import com.chicu.trader.model.ProfitablePair;
 import com.chicu.trader.repository.ProfitablePairRepository;
-import com.chicu.trader.trading.TradingStatusService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -20,8 +20,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AiTradingState implements MenuState {
 
-    private final TradingStatusService statusService;
-    private final ProfitablePairRepository pairRepo;
+    private final AiTradingService            aiService;
+    private final ProfitablePairRepository    pairRepo;
 
     @Override
     public String name() {
@@ -30,14 +30,11 @@ public class AiTradingState implements MenuState {
 
     @Override
     public SendMessage render(Long chatId) {
-        boolean running = statusService.isRunning(chatId);
-
-        // Строка статуса торговли
+        boolean running = aiService.isTradingEnabled(chatId);
         String statusLine = running
                 ? "▶️ *Торговля запущена!*"
                 : "❌ *Торговля остановлена*";
 
-        // Список пар
         List<ProfitablePair> pairs = pairRepo.findByUserChatIdAndActiveTrue(chatId);
         String pairsLine = pairs.isEmpty()
                 ? "_Нет активных пар_"
@@ -45,13 +42,11 @@ public class AiTradingState implements MenuState {
                 .map(ProfitablePair::getSymbol)
                 .collect(Collectors.joining(", "));
 
-        // Последнее событие
-        String last = statusService.getLastEvent(chatId);
-        String lastLine = (last == null || last.isBlank())
+        String lastEvent = aiService.getLastEvent(chatId);
+        String lastLine = (lastEvent == null || lastEvent.isBlank())
                 ? "_Последнее событие: нет данных_"
-                : "*Последнее событие:* " + last;
+                : "*Последнее событие:* " + lastEvent;
 
-        // Собираем текст
         String text = String.join("\n",
                 "*AI-торговля*",
                 statusLine,
@@ -61,34 +56,39 @@ public class AiTradingState implements MenuState {
                 "Выберите действие:"
         );
 
-        // Кнопки
-        InlineKeyboardMarkup keyboard = InlineKeyboardMarkup.builder()
+        InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder()
                 .keyboard(List.of(
                         List.of(
                                 InlineKeyboardButton.builder()
                                         .text(running ? "▶️ Запустить снова" : "▶️ Начать торговлю")
-                                        .callbackData("ai_trading:start").build(),
+                                        .callbackData("ai_trading:start")
+                                        .build(),
                                 InlineKeyboardButton.builder()
                                         .text(running ? "⏹️ Остановить торговлю" : "⏹️ Остановлена")
-                                        .callbackData("ai_trading:stop").build()
+                                        .callbackData("ai_trading:stop")
+                                        .build()
                         ),
                         List.of(
                                 InlineKeyboardButton.builder()
                                         .text("⚙️ Настройки")
-                                        .callbackData("ai_trading:settings").build(),
+                                        .callbackData("ai_trading:settings")
+                                        .build(),
                                 InlineKeyboardButton.builder()
                                         .text("📊 Статистика")
-                                        .callbackData("ai_trading:statistics").build()
+                                        .callbackData("ai_trading:statistics")
+                                        .build()
                         ),
                         List.of(
                                 InlineKeyboardButton.builder()
                                         .text("📋 Ордера")
-                                        .callbackData("ai_trading:orders").build()
+                                        .callbackData("ai_trading:orders")
+                                        .build()
                         ),
                         List.of(
                                 InlineKeyboardButton.builder()
                                         .text("‹ Назад")
-                                        .callbackData(MenuService.BACK).build()
+                                        .callbackData(MenuService.BACK)
+                                        .build()
                         )
                 ))
                 .build();
@@ -97,7 +97,7 @@ public class AiTradingState implements MenuState {
                 .chatId(chatId.toString())
                 .text(text)
                 .parseMode("Markdown")
-                .replyMarkup(keyboard)
+                .replyMarkup(kb)
                 .build();
     }
 
@@ -108,12 +108,19 @@ public class AiTradingState implements MenuState {
         }
         String data = update.getCallbackQuery().getData();
         return switch (data) {
-            case "ai_trading:start", "ai_trading:stop"   -> name();
-            case "ai_trading:settings"                   -> "ai_trading_settings";
-            case "ai_trading:statistics"                 -> "ai_trading_statistics";
-            case "ai_trading:orders"                     -> "ai_trading_orders";
-            case MenuService.BACK                        -> MenuService.BACK;
-            default                                      -> name();
+            case "ai_trading:start" -> {
+                aiService.enableTrading(update.getCallbackQuery().getMessage().getChatId());
+                yield name();
+            }
+            case "ai_trading:stop" -> {
+                aiService.disableTrading(update.getCallbackQuery().getMessage().getChatId());
+                yield name();
+            }
+            case "ai_trading:settings" -> "ai_trading_settings";
+            case "ai_trading:statistics" -> "ai_trading_statistics";
+            case "ai_trading:orders" -> "ai_trading_orders";
+            case MenuService.BACK -> MenuService.BACK;
+            default -> name();
         };
     }
 }
