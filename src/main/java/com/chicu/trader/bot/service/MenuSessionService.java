@@ -1,22 +1,34 @@
-// src/main/java/com/chicu/trader/bot/service/MenuSessionService.java
 package com.chicu.trader.bot.service;
 
 import org.springframework.stereotype.Service;
+import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
 
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 @Service
 public class MenuSessionService {
-    private final ConcurrentMap<Long, Integer> lastMenuMessage = new ConcurrentHashMap<>();
+    // хранит для каждого chatId текущее messageId меню
+    private final ConcurrentHashMap<Long, Integer> menuMessages = new ConcurrentHashMap<>();
 
-    /** Запоминаем messageId меню для chatId */
-    public void updateMenuMessage(Long chatId, Integer messageId) {
-        lastMenuMessage.put(chatId, messageId);
+    /** Возвращает messageId, под которым было отправлено меню этому пользователю */
+    public Integer getMenuMessageId(Long chatId) {
+        return menuMessages.get(chatId);
     }
 
-    /** Получаем последнее messageId меню для chatId (или null) */
-    public Integer getMenuMessageId(Long chatId) {
-        return lastMenuMessage.get(chatId);
+    /** Удаляет notice-уведомление для пользователя (если нужно) */
+    public Optional<BotApiMethod<?>> popNotice(Long chatId) {
+        // ваша реализация...
+        return Optional.empty();
+    }
+
+    // >>>>> ДОБАВЛЕНО ДЛЯ ТЕСТА <<<<<<
+    /**
+     * Регистрирует в службу, что меню этого пользователя было отправлено
+     * и находится под этим messageId.
+     * (Используется в интеграционных тестах.)
+     */
+    public void createMenuMessage(Long chatId, int messageId) {
+        menuMessages.put(chatId, messageId);
     }
 }

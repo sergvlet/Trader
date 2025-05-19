@@ -28,60 +28,60 @@ public class NetworkSettingsState implements MenuState {
 
     @Override
     public SendMessage render(Long chatId) {
-        String exch   = settings.getExchange(chatId);
-        String mode   = settings.getMode(chatId);
+        String exch = settings.getExchange(chatId);
+        String mode = settings.getMode(chatId);
         boolean hasCred = settings.hasCredentials(chatId);
-        boolean ok      = settings.testConnection(chatId);
+        boolean ok = settings.testConnection(chatId);
 
         String exchText = exch != null ? exch : "не задана";
         String modeText = mode != null ? mode : "не задан";
 
         InlineKeyboardButton exchBtn = InlineKeyboardButton.builder()
-            .text("🌐 Биржа: " + exchText)
-            .callbackData("network_select_exchange")
-            .build();
+                .text("🌐 Биржа: " + exchText)
+                .callbackData("network_select_exchange")
+                .build();
         InlineKeyboardButton modeBtn = InlineKeyboardButton.builder()
-            .text("🧪 Режим: " + modeText)
-            .callbackData("network_select_mode")
-            .build();
+                .text("🧪 Режим: " + modeText)
+                .callbackData("network_select_mode")
+                .build();
         InlineKeyboardButton keysBtn = InlineKeyboardButton.builder()
-            .text(exch != null
-                ? (hasCred ? "🔑 Изменить ключи" : "🔑 Ввести ключи")
-                : "🔑 Сначала выберите биржу")
-            .callbackData(exch != null
-                ? "network_enter_api"
-                : "network_select_exchange")
-            .build();
+                .text(exch != null
+                        ? (hasCred ? "🔑 Изменить ключи" : "🔑 Ввести ключи")
+                        : "🔑 Сначала выберите биржу")
+                .callbackData(exch != null
+                        ? "network_enter_api"
+                        : "network_select_exchange")
+                .build();
         InlineKeyboardButton backBtn = InlineKeyboardButton.builder()
-            .text("‹ Назад")
-            .callbackData(MenuService.BACK)
-            .build();
+                .text("‹ Назад")
+                .callbackData(MenuService.BACK)
+                .build();
 
         InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder()
-            .keyboard(List.of(
-                List.of(exchBtn),
-                List.of(modeBtn),
-                List.of(keysBtn),
-                List.of(backBtn)
-            ))
-            .build();
+                .keyboard(List.of(
+                        List.of(exchBtn),
+                        List.of(modeBtn),
+                        List.of(keysBtn),
+                        List.of(backBtn)
+                ))
+                .build();
 
         String connectionLine = hasCred
-            ? (ok ? "✅ Соединение установлено" : "❌ Ошибка соединения")
-            : "";
+                ? (ok ? "✅ Соединение установлено" : "❌ Ошибка соединения")
+                : "";
 
         String text = "*Сетевые настройки*\n" +
-                      "Биржа: " + exchText + "\n" +
-                      "Режим: " + modeText + "\n" +
-                      "Ключи: " + (hasCred ? "заданы" : "не заданы") +
-                      (connectionLine.isEmpty() ? "" : "\n" + connectionLine) +
-                      "\n\nВыберите действие:";
+                "Биржа: " + exchText + "\n" +
+                "Режим: " + modeText + "\n" +
+                "Ключи: " + (hasCred ? "заданы" : "не заданы") +
+                (connectionLine.isEmpty() ? "" : "\n" + connectionLine) +
+                "\n\nВыберите действие:";
         return SendMessage.builder()
-            .chatId(chatId.toString())
-            .text(text)
-            .parseMode("Markdown")
-            .replyMarkup(kb)
-            .build();
+                .chatId(chatId.toString())
+                .text(text)
+                .parseMode("Markdown")
+                .replyMarkup(kb)
+                .build();
     }
 
     @Override
@@ -91,15 +91,19 @@ public class NetworkSettingsState implements MenuState {
         Long chatId = update.getCallbackQuery().getMessage().getChatId();
 
         switch (data) {
-            case "network_select_exchange": return "network_select_exchange";
-            case "network_select_mode":     return "network_select_mode";
+            case "network_select_exchange":
+                return "network_select_exchange";
+            case "network_select_mode":
+                return "network_select_mode";
             case "network_enter_api":
                 if (settings.getExchange(chatId) == null) {
                     return "network_select_exchange";
                 }
                 return "network_enter_api";
-            case MenuService.BACK:          return MenuService.BACK;
-            default:                        return name();
+            case MenuService.BACK:
+                return MenuService.BACK;
+            default:
+                return name();
         }
     }
 }

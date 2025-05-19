@@ -2,8 +2,8 @@
 package com.chicu.trader.trading;
 
 import com.chicu.trader.model.ProfitablePair;
-import com.chicu.trader.trading.model.Candle;
 import com.chicu.trader.trading.binance.BinanceClientProvider;
+import com.chicu.trader.trading.model.Candle;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +13,8 @@ import reactor.core.publisher.Flux;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,17 +22,28 @@ import java.util.stream.Collectors;
 public class CandleServiceImpl implements CandleService {
 
     private final BinanceClientProvider clientProvider;
-    private final ObjectMapper          objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // карта для тестовых «заглушек»
+    private final Map<Long, List<Candle>> overrides = new ConcurrentHashMap<>();
 
     @Override
     public Flux<Candle> streamHourly(Long chatId, List<ProfitablePair> pairs) {
-        return Flux.interval(Duration.ZERO, Duration.ofHours(1))
-            .flatMapIterable(tick ->
-                pairs.stream()
-                     .map(p -> fetchLastCandle(chatId, p.getSymbol()))
-                     .collect(Collectors.toList())
-            )
-            .filter(c -> c != null);
+        if (overrides.containsKey(chatId)) {
+            List<Candle> list = overrides.remove(chatId);
+            return Flux.fromIterable(list);
+        }
+        return Flux
+            .interval(Duration.ZERO, Duration.ofHours(1))
+            .flatMapIterable(tick -> pairs.stream()
+                .map(p -> fetchLastCandle(chatId, p.getSymbol()))
+                .collect(Collectors.toList())
+            );
+    }
+
+    @Override
+    public void setStreamOverride(Long chatId, List<Candle> override) {
+        overrides.put(chatId, override);
     }
 
     private Candle fetchLastCandle(Long chatId, String symbol) {
@@ -39,31 +52,33 @@ public class CandleServiceImpl implements CandleService {
     }
 
     @Override
-    public List<Candle> historyHourly(Long chatId, String symbol, int limit) {
-        return parseKlines(chatId, symbol, "1h", limit);
+    public List<Candle> historyHourly(Long chatId, String symbol, int count) {
+        return parseKlines(chatId, symbol, "1h", count);
     }
 
     @Override
-    public List<Candle> history4h(Long chatId, String symbol, int limit) {
-        return parseKlines(chatId, symbol, "4h", limit);
+    public List<Candle> history4h(Long chatId, String symbol, int count) {
+        return parseKlines(chatId, symbol, "4h", count);
     }
 
     @SuppressWarnings("unchecked")
     private List<Candle> parseKlines(Long chatId, String symbol, String interval, int limit) {
         var rest = clientProvider.restClient(chatId);
         var params = new LinkedHashMap<String, Object>();
-        params.put("symbol",   symbol);
+        params.put("symbol", symbol);
         params.put("interval", interval);
-        params.put("limit",    limit);
+        params.put("limit", limit);
 
         String json = rest.createMarket().klines(params);
         try {
+            // парсим в List<List<Object>>
             List<List<Object>> rawNested = objectMapper.readValue(
                 json, new TypeReference<List<List<Object>>>() {}
             );
-            return Candle.fromKlines((List<Object>)(List<?>) rawNested, symbol);
-        } catch (Exception ex) {
-            throw new RuntimeException("Failed to parse klines for " + symbol, ex);
+            // передаём «сырые» клайны в модель
+            return Candle.fromKlines(rawNested, symbol);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse klines JSON for " + symbol, e);
         }
     }
 }

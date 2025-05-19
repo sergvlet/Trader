@@ -1,43 +1,45 @@
 // src/main/java/com/chicu/trader/bot/service/TelegramSender.java
 package com.chicu.trader.bot.service;
 
-import jakarta.annotation.PostConstruct;
+import com.chicu.trader.bot.TraderTelegramBot;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.annotation.Lazy;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
-import org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException;
-import org.telegram.telegrambots.meta.bots.AbsSender;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class TelegramSender {
 
-    // Инъектим бота лениным образом
-    private final @Lazy AbsSender bot;
+    private final TraderTelegramBot bot;
 
-    /** Обычная отправка SendMessage */
-    public void executeUnchecked(SendMessage msg) {
-        try {
-            bot.execute(msg);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to send message", e);
-        }
-    }
-
-    /** Редактирование, игнорируя "message is not modified" */
+    /**
+     * Редактирует уже отправленное меню. При ошибке просто логируем.
+     */
     public void executeEdit(EditMessageText edit) {
         try {
             bot.execute(edit);
-        } catch (TelegramApiRequestException e) {
-            String resp = e.getApiResponse();
-            if (resp != null && resp.contains("message is not modified")) {
-                return;
-            }
-            throw new RuntimeException("Failed to edit message", e);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to edit message", e);
+        } catch (TelegramApiException e) {
+            log.warn("Не удалось отредактировать меню: {}", e.getMessage());
         }
     }
+
+    /**
+     * Отправляет простое текстовое сообщение. При ошибке — лог и продолжаем.
+     */
+    public void sendText(Long chatId, String text) {
+        SendMessage msg = SendMessage.builder()
+                .chatId(chatId.toString())
+                .text(text)
+                .build();
+        try {
+            bot.execute(msg);
+        } catch (TelegramApiException e) {
+            log.warn("Не удалось отправить текст: {}", e.getMessage());
+        }
+    }
+
 }

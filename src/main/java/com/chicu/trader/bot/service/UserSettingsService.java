@@ -16,6 +16,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class UserSettingsService {
 
+
     private final UserSettingsRepository settingsRepo;
     private final UserRepository         userRepo;
 

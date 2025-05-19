@@ -2,6 +2,7 @@
 package com.chicu.trader.trading.model;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -9,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 @Data
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class Candle {
@@ -38,18 +40,18 @@ public class Candle {
 
     /** Из REST-ответа klines (каждый элемент — List<Object>) и передаём symbol. */
     @SuppressWarnings("unchecked")
-    public static List<Candle> fromKlines(List<Object> rawNested, String symbol) {
+    public static List<Candle> fromKlines(List<List<Object>> rawNested, String symbol) {
         return ((List<List<Object>>) (List<?>) rawNested).stream()
-            .map(r -> new Candle(
-                symbol,
-                ((Number) r.get(0)).longValue(),
-                Double.parseDouble((String) r.get(1)),
-                Double.parseDouble((String) r.get(2)),
-                Double.parseDouble((String) r.get(3)),
-                Double.parseDouble((String) r.get(4)),
-                Double.parseDouble((String) r.get(5)),
-                ((Number) r.get(6)).longValue()
-            ))
-            .toList();
+                .map(r -> new Candle(
+                        symbol,
+                        ((Number) r.get(0)).longValue(),
+                        Double.parseDouble((String) r.get(1)),
+                        Double.parseDouble((String) r.get(2)),
+                        Double.parseDouble((String) r.get(3)),
+                        Double.parseDouble((String) r.get(4)),
+                        Double.parseDouble((String) r.get(5)),
+                        ((Number) r.get(6)).longValue()
+                ))
+                .toList();
     }
 }

@@ -5,11 +5,9 @@ import com.chicu.trader.model.ProfitablePair;
 import com.chicu.trader.trading.context.StrategyContext;
 import com.chicu.trader.trading.event.TradingToggleEvent;
 import com.chicu.trader.bot.service.MenuEditor;
-import com.chicu.trader.trading.MarketDataService;
 import com.chicu.trader.model.TradeLog;
 import com.chicu.trader.repository.ProfitablePairRepository;
 import com.chicu.trader.repository.TradeLogRepository;
-import com.chicu.trader.trading.ml.MlTrainer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
@@ -40,13 +38,11 @@ public class TradingEngine {
 
     @EventListener
     public void onTradingToggle(TradingToggleEvent evt) {
-        Long chatId = evt.getChatId();
-        if (evt.isStart()) startAutoTrading(chatId);
-        else               stopAutoTrading(chatId);
+        if (evt.isStart()) startAutoTrading(evt.getChatId());
+        else               stopAutoTrading(evt.getChatId());
     }
 
     public void startAutoTrading(Long chatId) {
-        // 1) получаем список топ-5 по объёму
         List<String> symbols = marketDataService.getTopNLiquidPairs(5);
         if (symbols.isEmpty()) {
             statusService.setLastEvent(chatId, "❌ Не удалось получить пары");
@@ -54,7 +50,6 @@ public class TradingEngine {
             return;
         }
 
-        // 2) переобучаем модель
         statusService.setLastEvent(chatId, "ℹ️ Переобучаю модель и TP/SL…");
         menuEditor.updateMenu(chatId, "ai_trading");
         try {
@@ -68,14 +63,13 @@ public class TradingEngine {
         }
         menuEditor.updateMenu(chatId, "ai_trading");
 
-        // 3) подписываемся на часовые свечи по активным парам из БД
         List<ProfitablePair> pairs = pairRepo.findByUserChatIdAndActiveTrue(chatId);
         Disposable sub = candleService
                 .streamHourly(chatId, pairs)
                 .map(c -> strategyFacade.buildContext(chatId, c, pairs))
                 .subscribe(this::onNewCandle, err -> onError(chatId, err), () -> onComplete(chatId));
-
         streams.put(chatId, sub);
+
         statusService.markRunning(chatId);
         statusService.setLastEvent(chatId, "▶️ Торговля запущена на: " + String.join(", ", symbols));
         menuEditor.updateMenu(chatId, "ai_trading");
@@ -100,19 +94,23 @@ public class TradingEngine {
         }
 
         if (strategyFacade.shouldEnter(ctx)) {
+            log.info("Attempting entry for {} @ {}", ctx.getSymbol(), ctx.getPrice());
             TradeLog entry = orderService.openPosition(ctx);
             logRepo.save(entry);
             statusService.setLastEvent(chatId,
                     String.format("✅ Вход %s @ %.4f", ctx.getSymbol(), ctx.getPrice()));
             menuEditor.updateMenu(chatId, "ai_trading");
+            log.info("Entry executed for {}: {}", chatId, entry);
         }
 
         orderService.checkAndClose(ctx).ifPresent(exitLog -> {
+            log.info("Attempting exit for {} @ {}", exitLog.getSymbol(), exitLog.getExitPrice());
             logRepo.save(exitLog);
             statusService.setLastEvent(chatId,
                     String.format("🔒 Выход %s @ %.4f (PnL=%.4f)",
                             exitLog.getSymbol(), exitLog.getExitPrice(), exitLog.getPnl()));
             menuEditor.updateMenu(chatId, "ai_trading");
+            log.info("Exit executed for {}: {}", chatId, exitLog);
         });
     }
 
