@@ -1,4 +1,4 @@
-package com.chicu.trader.bot.menu.feature.ai_trading;
+package com.chicu.trader.bot.menu.feature.ai_trading.pairs;
 
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.AiTradingSettingsService;

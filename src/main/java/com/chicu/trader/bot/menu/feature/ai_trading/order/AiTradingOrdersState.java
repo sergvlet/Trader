@@ -1,6 +1,5 @@
-package com.chicu.trader.bot.menu.feature.ai_trading;
+package com.chicu.trader.bot.menu.feature.ai_trading.order;
 
-import com.chicu.trader.bot.menu.core.MenuService;
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.AiTradingService;
 import lombok.RequiredArgsConstructor;

@@ -1,9 +1,9 @@
+// src/main/java/com/chicu/trader/trading/service/binance/HttpBinanceWebSocketService.java
 package com.chicu.trader.trading.service.binance;
 
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.trading.model.Candle;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -13,9 +13,10 @@ import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.nio.ByteBuffer;
 import java.time.Duration;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 @Slf4j
 @Component
@@ -26,39 +27,68 @@ public class HttpBinanceWebSocketService {
     private static final String TEST_WS = "wss://testnet.binance.vision/ws";
 
     private final AiTradingSettingsService settingsService;
-    private final HttpBinanceCandleService  candleService;
-    private final ObjectMapper              objectMapper = new ObjectMapper();
+    private final HttpBinanceCandleService candleService;
+    private final ObjectMapper objectMapper;
 
-    @PostConstruct
-    public void init() {
-        // Подписываемся на обновления для каждого пользователя и его списка пар
-        HttpClient client = HttpClient.newHttpClient();
-        List<Long> chatIds = settingsService.findAllChatIds();
-        for (Long chatId : chatIds) {
-            var settings = settingsService.getOrCreate(chatId);
-            String base = "test".equalsIgnoreCase(settings.getNetworkMode()) ? TEST_WS : PROD_WS;
-            List<String> symbols = settings.getSymbols() == null || settings.getSymbols().isBlank()
-                    ? List.of()
-                    : List.of(settings.getSymbols().split(","));
-            for (String symbol : symbols) {
-                String uri = String.format("%s/%s@kline_%s", base, symbol.toLowerCase(), settings.getTimeframe());
-                client.newWebSocketBuilder()
-                        .connectTimeout(Duration.ofSeconds(5))
-                        .buildAsync(URI.create(uri), new WebSocket.Listener() {
-                            private final StringBuilder sb = new StringBuilder();
-                            @Override
-                            public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
-                                sb.append(data);
-                                if (!last) return WebSocket.Listener.super.onText(webSocket, data, last);
-                                String msg = sb.toString();
-                                sb.setLength(0);
-                                try {
-                                    @SuppressWarnings("unchecked")
-                                    Map<String,Object> m = objectMapper.readValue(msg, Map.class);
-                                    @SuppressWarnings("unchecked")
-                                    Map<String,Object> k = (Map<String,Object>) m.get("k");
+    private final HttpClient client = HttpClient.newHttpClient();
+    private final Map<String, WebSocket> sockets = new ConcurrentHashMap<>();
+
+    /**
+     * Запустить подписки по списку символов.
+     * Для каждого символа будет вызываться candleService.onWebSocketCandleUpdate(c).
+     */
+    public synchronized void startSubscriptions(Long chatId, List<String> symbols) {
+        startSubscriptions(chatId, symbols, candleService::onWebSocketCandleUpdate);
+    }
+
+    /**
+     * Запустить подписки по списку символов с пользовательским колбэком onCandle.
+     *
+     * @param chatId   чей сеттинг брать для выбора PROD_WS / TEST_WS
+     * @param symbols  список символов (например, ["BTCUSDT","ETHUSDT"])
+     * @param onCandle колбэк, вызываемый для каждого закрытого бара
+     */
+    public synchronized void startSubscriptions(
+            Long chatId,
+            List<String> symbols,
+            Consumer<Candle> onCandle
+    ) {
+        // Закрываем предыдущие WS
+        stopSubscriptions();
+
+        String mode = settingsService.getOrCreate(chatId).getNetworkMode();
+        String base = "test".equalsIgnoreCase(mode) ? TEST_WS : PROD_WS;
+
+        for (String sym : symbols) {
+            String stream = sym.toLowerCase() + "@kline_1m";
+            String uri = base + "/" + stream;
+            log.info("WS connecting to {}", uri);
+
+            client.newWebSocketBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .buildAsync(URI.create(uri), new WebSocket.Listener() {
+                        private final StringBuilder sb = new StringBuilder();
+
+                        @Override
+                        public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+                            sb.append(data);
+                            if (!last) {
+                                return WebSocket.Listener.super.onText(webSocket, data, last);
+                            }
+                            String msg = sb.toString();
+                            sb.setLength(0);
+
+                            try {
+                                @SuppressWarnings("unchecked")
+                                Map<String, Object> m = objectMapper.readValue(msg, Map.class);
+                                @SuppressWarnings("unchecked")
+                                Map<String, Object> k = (Map<String, Object>) m.get("k");
+
+                                // Флаг завершения бара
+                                Boolean isFinal = (Boolean) k.get("x");
+                                if (Boolean.TRUE.equals(isFinal)) {
                                     Candle c = new Candle(
-                                            symbol.toUpperCase(),
+                                            (String) k.get("s"),
                                             ((Number) k.get("t")).longValue(),
                                             Double.parseDouble(k.get("o").toString()),
                                             Double.parseDouble(k.get("h").toString()),
@@ -67,25 +97,47 @@ public class HttpBinanceWebSocketService {
                                             Double.parseDouble(k.get("v").toString()),
                                             ((Number) k.get("T")).longValue()
                                     );
-                                    // Передаём chatId и новую свечу в сервис
-                                    candleService.onWebSocketCandleUpdate(c);
-                                } catch (Exception ex) {
-                                    log.error("Ошибка парсинга WS-сообщения для {}: {}", uri, ex.getMessage());
+                                    onCandle.accept(c);
                                 }
-                                return WebSocket.Listener.super.onText(webSocket, data, last);
+                            } catch (Exception ex) {
+                                log.error("WS parse error for {}: {}", sym, ex.getMessage());
                             }
-                            @Override public void onOpen(WebSocket webSocket) {
-                                log.info("WS подключено к {}", uri);
-                            }
-                            @Override public CompletionStage<?> onBinary(WebSocket webSocket, ByteBuffer data, boolean last) {
-                                return WebSocket.Listener.super.onBinary(webSocket, data, last);
-                            }
-                            @Override public void onError(WebSocket webSocket, Throwable error) {
-                                log.error("Ошибка WS для " + uri, error);
-                            }
-                        });
-            }
+                            return WebSocket.Listener.super.onText(webSocket, data, last);
+                        }
+
+                        @Override
+                        public void onOpen(WebSocket webSocket) {
+                            log.info("WS opened {}", uri);
+                            sockets.put(sym, webSocket);
+                            WebSocket.Listener.super.onOpen(webSocket);
+                        }
+
+                        @Override
+                        public CompletionStage<?> onBinary(WebSocket webSocket, ByteBuffer data, boolean last) {
+                            return WebSocket.Listener.super.onBinary(webSocket, data, last);
+                        }
+
+                        @Override
+                        public void onError(WebSocket webSocket, Throwable error) {
+                            log.error("WS error on {}: {}", uri, error.getMessage());
+                            WebSocket.Listener.super.onError(webSocket, error);
+                        }
+                    });
         }
-        log.info("WebSocket подписки установлены для {} пользователей", chatIds.size());
+    }
+
+    /**
+     * Отключить все подписки.
+     */
+    public synchronized void stopSubscriptions() {
+        sockets.forEach((sym, ws) -> {
+            log.info("WS closing for {}", sym);
+            try {
+                ws.sendClose(WebSocket.NORMAL_CLOSURE, "stop").join();
+            } catch (Exception e) {
+                log.warn("Error closing WS for {}: {}", sym, e.getMessage());
+            }
+        });
+        sockets.clear();
     }
 }
