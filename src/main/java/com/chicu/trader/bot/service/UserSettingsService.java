@@ -128,9 +128,6 @@ public class UserSettingsService {
         return hasCredentials(chatId);
     }
 
-    // === Добавленные методы: ApiCredentials и режим Testnet/Real ===
-
-
 
     /**
      * Возвращает ApiCredentials (apiKey + secretKey) для текущего режима пользователя.
