@@ -52,4 +52,10 @@ public class TradingExecutor {
         wsService.stopSubscriptions();
         log.info("Торговый исполнитель остановлен");
     }
+    public void updateExecutor(Long chatId, List<String> newSymbols) {
+        wsService.stopSubscriptions(chatId);
+        wsService.startSubscriptions(chatId, newSymbols, candle -> handleCandle(chatId, candle));
+        log.info("Перезапущен торговый исполнитель для chatId={} с новыми парами: {}", chatId, newSymbols);
+    }
+
 }

@@ -1,8 +1,8 @@
-// src/main/java/com/chicu/trader/bot/menu/feature/ai_trading/AiTradingPairsListState.java
 package com.chicu.trader.bot.menu.feature.ai_trading.pairs;
 
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
+import com.chicu.trader.trading.TradingExecutor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -16,9 +16,11 @@ import java.util.stream.Collectors;
 public class AiTradingPairsListState implements MenuState {
 
     private final AiTradingSettingsService settingsService;
+    private final TradingExecutor tradingExecutor;
 
-    public AiTradingPairsListState(AiTradingSettingsService settingsService) {
+    public AiTradingPairsListState(AiTradingSettingsService settingsService, TradingExecutor tradingExecutor) {
         this.settingsService = settingsService;
+        this.tradingExecutor = tradingExecutor;
     }
 
     @Override
@@ -31,51 +33,52 @@ public class AiTradingPairsListState implements MenuState {
         List<String> pairs = settingsService.suggestPairs(chatId);
 
         var rows = pairs.stream()
-            .map(sym -> List.of(
-                InlineKeyboardButton.builder()
-                    .text(sym)
-                    .callbackData("pair_select:" + sym)
-                    .build()
-            ))
-            .collect(Collectors.toList());
+                .map(sym -> List.of(
+                        InlineKeyboardButton.builder()
+                                .text(sym)
+                                .callbackData("pair_select:" + sym)
+                                .build()
+                ))
+                .collect(Collectors.toList());
 
-        // кнопка «Назад» внизу
         rows.add(List.of(
-            InlineKeyboardButton.builder()
-                .text("‹ Назад")
-                .callbackData("ai_trading_settings")
-                .build()
+                InlineKeyboardButton.builder()
+                        .text("‹ Назад")
+                        .callbackData("ai_trading_settings")
+                        .build()
         ));
 
         InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder()
-            .keyboard(rows)
-            .build();
+                .keyboard(rows)
+                .build();
 
         String text = pairs.isEmpty()
-            ? "Нет доступных пар для выбора."
-            : "Выберите одну из доступных пар:";
+                ? "Нет доступных пар для выбора."
+                : "Выберите одну из доступных пар:";
 
         return SendMessage.builder()
-            .chatId(chatId.toString())
-            .text(text)
-            .replyMarkup(kb)
-            .build();
+                .chatId(chatId.toString())
+                .text(text)
+                .replyMarkup(kb)
+                .build();
     }
 
     @Override
     public String handleInput(Update update) {
-        String data   = update.getCallbackQuery().getData();
-        Long   chatId = update.getCallbackQuery().getMessage().getChatId();
+        String data = update.getCallbackQuery().getData();
+        Long chatId = update.getCallbackQuery().getMessage().getChatId();
 
         if (data.startsWith("pair_select:")) {
             String sym = data.substring("pair_select:".length());
             settingsService.updateSymbols(chatId, sym);
+            tradingExecutor.updateExecutor(chatId, List.of(sym)); // ← обновление
             return "ai_trading_settings";
         }
-        // «Назад»
+
         if ("ai_trading_settings".equals(data)) {
             return "ai_trading_settings";
         }
+
         return name();
     }
 }

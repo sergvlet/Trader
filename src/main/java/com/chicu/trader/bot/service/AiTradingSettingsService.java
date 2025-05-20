@@ -9,6 +9,7 @@ import com.chicu.trader.model.ProfitablePair;
 import com.chicu.trader.repository.ProfitablePairRepository;
 import com.chicu.trader.trading.DailyOptimizer;
 import com.chicu.trader.trading.ml.MlModelTrainer;
+import com.chicu.trader.trading.ml.MlTrainingMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -82,6 +83,9 @@ public class AiTradingSettingsService {
                             .notificationsEnabled(defaults.isDefaultNotificationsEnabled())
                             .modelVersion(defaults.getDefaultModelVersion())
                             .cachedCandlesLimit(defaults.getDefaultCachedCandlesLimit())
+                            .mlModelPath("models/%d/ml_signal_filter.onnx")
+                            .mlInputName("input")
+                            .mlThreshold(0.5)
                             .build();
                     log.info("Созданы настройки AI для chatId={}", chatId);
                     return settingsRepo.save(s);
@@ -105,6 +109,7 @@ public class AiTradingSettingsService {
         AiTradingSettings s = getOrCreate(chatId);
         s.setTimeframe(timeframe);
         settingsRepo.save(s);
+        trainAndApplyAsync(chatId);
     }
 
     public void resetTimeframeDefaults(Long chatId) {
@@ -115,6 +120,7 @@ public class AiTradingSettingsService {
         AiTradingSettings s = getOrCreate(chatId);
         s.setTopN(topN);
         settingsRepo.save(s);
+        trainAndApplyAsync(chatId);
     }
 
     public void resetTopNDefaults(Long chatId) {
@@ -125,6 +131,7 @@ public class AiTradingSettingsService {
         AiTradingSettings s = getOrCreate(chatId);
         s.setSymbols(symbolsCsv);
         settingsRepo.save(s);
+        trainAndApplyAsync(chatId);
     }
 
     public void resetSymbolsDefaults(Long chatId) {
@@ -234,11 +241,12 @@ public class AiTradingSettingsService {
 
     @Async("mlExecutor")
     public CompletableFuture<Void> trainAndApplyAsync(Long chatId) {
-        log.info("🔄 Запуск бэктеста для chatId={}", chatId);
-        String path = String.format("models/%d/ml_signal_filter.onnx", chatId);
-        modelTrainer.trainAndExport(chatId, path);
+        log.info("🔄 Запуск обучения и оптимизации для chatId={}", chatId);
 
+        String path = String.format("models/%d/ml_signal_filter.onnx", chatId);
+        MlTrainingMetrics metrics = modelTrainer.trainAndExport(chatId, path);
         var res = optimizer.optimizeAllForChat(chatId);
+
         AiTradingSettings s = getOrCreate(chatId);
         s.setTpSlConfig(res.toJson());
         s.setTopN(res.getTopN());
@@ -253,10 +261,23 @@ public class AiTradingSettingsService {
         s.setOrderType(res.getOrderType());
         s.setNotificationsEnabled(res.getNotificationsEnabled());
         s.setModelVersion(res.getModelVersion());
+
+        s.setMlAccuracy(metrics.getAccuracy());
+        s.setMlPrecision(metrics.getPrecision());
+        s.setMlRecall(metrics.getRecall());
+        s.setMlAuc(metrics.getAuc());
+        s.setMlTrainedAt(System.currentTimeMillis());
+
         settingsRepo.save(s);
 
         aiTradingService.enableTrading(chatId);
-        log.info("✅ AI-торговля включена для chatId={}", chatId);
+        log.info("✅ AI-торговля включена для chatId={}, метрики: acc=%.4f, pr=%.4f, rec=%.4f, auc=%.4f",
+                chatId,
+                metrics.getAccuracy(),
+                metrics.getPrecision(),
+                metrics.getRecall(),
+                metrics.getAuc());
+
         return CompletableFuture.completedFuture(null);
     }
 
@@ -274,6 +295,7 @@ public class AiTradingSettingsService {
     public AiTradingSettings save(AiTradingSettings settings) {
         return settingsRepo.save(settings);
     }
+
     public void updateCachedCandlesLimit(Long chatId, Integer limit) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setCachedCandlesLimit(limit);

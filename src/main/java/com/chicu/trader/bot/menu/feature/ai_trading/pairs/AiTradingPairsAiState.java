@@ -2,6 +2,7 @@ package com.chicu.trader.bot.menu.feature.ai_trading.pairs;
 
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
+import com.chicu.trader.trading.TradingExecutor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -14,9 +15,11 @@ import java.util.List;
 public class AiTradingPairsAiState implements MenuState {
 
     private final AiTradingSettingsService settingsService;
+    private final TradingExecutor tradingExecutor;
 
-    public AiTradingPairsAiState(AiTradingSettingsService settingsService) {
+    public AiTradingPairsAiState(AiTradingSettingsService settingsService, TradingExecutor tradingExecutor) {
         this.settingsService = settingsService;
+        this.tradingExecutor = tradingExecutor;
     }
 
     @Override
@@ -28,42 +31,42 @@ public class AiTradingPairsAiState implements MenuState {
     public SendMessage render(Long chatId) {
         List<String> aiList = settingsService.suggestPairs(chatId);
         String text = "🤖 *AI-подбор пар*\n"
-            + "Предложенные:\n"
-            + String.join(",", aiList);
+                + "Предложенные:\n"
+                + String.join(",", aiList);
         return SendMessage.builder()
                 .chatId(chatId.toString())
                 .text(text)
                 .parseMode("Markdown")
                 .replyMarkup(InlineKeyboardMarkup.builder().keyboard(List.of(
-                    List.of(InlineKeyboardButton.builder()
-                            .text("✅ Принять").callbackData("pairs_ai_confirm").build()),
-                    List.of(InlineKeyboardButton.builder()
-                            .text("🔄 Повторить").callbackData("pairs_ai_retry").build()),
-                    List.of(InlineKeyboardButton.builder()
-                            .text("‹ Назад").callbackData("pairs_ai_back").build())
+                        List.of(InlineKeyboardButton.builder()
+                                .text("✅ Принять").callbackData("pairs_ai_confirm").build()),
+                        List.of(InlineKeyboardButton.builder()
+                                .text("🔄 Повторить").callbackData("pairs_ai_retry").build()),
+                        List.of(InlineKeyboardButton.builder()
+                                .text("‹ Назад").callbackData("pairs_ai_back").build())
                 )).build())
                 .build();
     }
 
     @Override
     public String handleInput(Update update) {
-        String data   = update.getCallbackQuery().getData();
-        Long   chatId = update.getCallbackQuery().getMessage().getChatId();
+        String data = update.getCallbackQuery().getData();
+        Long chatId = update.getCallbackQuery().getMessage().getChatId();
 
         switch (data) {
             case "pairs_ai_confirm" -> {
                 List<String> aiList = settingsService.suggestPairs(chatId);
-                settingsService.updateSymbols(chatId,
-                        String.join(",", aiList));
+                settingsService.updateSymbols(chatId, String.join(",", aiList));
+                tradingExecutor.updateExecutor(chatId, aiList); // ← обновление
                 return "ai_trading_settings";
             }
-            case "pairs_ai_retry"   -> {
+            case "pairs_ai_retry" -> {
                 return name();
             }
-            case "pairs_ai_back"    -> {
+            case "pairs_ai_back" -> {
                 return "ai_trading_settings";
             }
-            default                  -> {
+            default -> {
                 return name();
             }
         }

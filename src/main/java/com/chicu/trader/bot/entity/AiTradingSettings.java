@@ -91,6 +91,38 @@ public class AiTradingSettings {
     @Column(name = "cached_candles_limit")
     private Integer cachedCandlesLimit = 500;
 
+    /** Путь к ONNX-модели (с шаблоном %d для chatId) */
+    @Column(name = "ml_model_path")
+    private String mlModelPath;
+
+    /** Имя входного тензора модели */
+    @Column(name = "ml_input_name")
+    private String mlInputName;
+
+    /** Порог инференса (0.0–1.0) */
+    @Column(name = "ml_threshold")
+    private Double mlThreshold;
+
+    /** Последняя метрика точности модели (accuracy от 0 до 1) */
+    @Column(name = "ml_accuracy")
+    private Double mlAccuracy;
+
+    /** Полнота (recall от 0 до 1) */
+    @Column(name = "ml_recall")
+    private Double mlRecall;
+
+    /** Точность (precision от 0 до 1) */
+    @Column(name = "ml_precision")
+    private Double mlPrecision;
+
+    /** AUC (площадь под ROC-кривой) */
+    @Column(name = "ml_auc")
+    private Double mlAuc;
+
+    /** Дата последней тренировки (timestamp ms) */
+    @Column(name = "ml_trained_at")
+    private Long mlTrainedAt;
+
     /** Версия для оптимистичной блокировки */
     @Version
     private Long version;

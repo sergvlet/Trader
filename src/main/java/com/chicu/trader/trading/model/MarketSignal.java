@@ -1,9 +1,10 @@
 package com.chicu.trader.trading.model;
 
 /**
- * Результат инференса: купить или продать.
+ * Результат инференса: купить, продать или пропустить.
  */
 public enum MarketSignal {
     BUY,
-    SELL
+    SELL,
+    SKIP // ← добавлено
 }

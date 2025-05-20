@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/trading/service/binance/HttpBinanceWebSocketService.java
 package com.chicu.trader.trading.service.binance;
 
 import com.chicu.trader.bot.service.AiTradingSettingsService;
@@ -13,7 +12,7 @@ import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.nio.ByteBuffer;
 import java.time.Duration;
-import java.util.*;
+import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
@@ -31,30 +30,18 @@ public class HttpBinanceWebSocketService {
     private final ObjectMapper objectMapper;
 
     private final HttpClient client = HttpClient.newHttpClient();
-    private final Map<String, WebSocket> sockets = new ConcurrentHashMap<>();
+    private final Map<Long, Map<String, WebSocket>> userSockets = new ConcurrentHashMap<>();
 
-    /**
-     * Запустить подписки по списку символов.
-     * Для каждого символа будет вызываться candleService.onWebSocketCandleUpdate(c).
-     */
-    public synchronized void startSubscriptions(Long chatId, List<String> symbols) {
+    public synchronized void startSubscriptions(Long chatId, java.util.List<String> symbols) {
         startSubscriptions(chatId, symbols, candleService::onWebSocketCandleUpdate);
     }
 
-    /**
-     * Запустить подписки по списку символов с пользовательским колбэком onCandle.
-     *
-     * @param chatId   чей сеттинг брать для выбора PROD_WS / TEST_WS
-     * @param symbols  список символов (например, ["BTCUSDT","ETHUSDT"])
-     * @param onCandle колбэк, вызываемый для каждого закрытого бара
-     */
     public synchronized void startSubscriptions(
             Long chatId,
-            List<String> symbols,
+            java.util.List<String> symbols,
             Consumer<Candle> onCandle
     ) {
-        // Закрываем предыдущие WS
-        stopSubscriptions();
+        stopSubscriptions(chatId);
 
         String mode = settingsService.getOrCreate(chatId).getNetworkMode();
         String base = "test".equalsIgnoreCase(mode) ? TEST_WS : PROD_WS;
@@ -84,7 +71,6 @@ public class HttpBinanceWebSocketService {
                                 @SuppressWarnings("unchecked")
                                 Map<String, Object> k = (Map<String, Object>) m.get("k");
 
-                                // Флаг завершения бара
                                 Boolean isFinal = (Boolean) k.get("x");
                                 if (Boolean.TRUE.equals(isFinal)) {
                                     Candle c = new Candle(
@@ -108,7 +94,9 @@ public class HttpBinanceWebSocketService {
                         @Override
                         public void onOpen(WebSocket webSocket) {
                             log.info("WS opened {}", uri);
-                            sockets.put(sym, webSocket);
+                            userSockets
+                                    .computeIfAbsent(chatId, id -> new ConcurrentHashMap<>())
+                                    .put(sym, webSocket);
                             WebSocket.Listener.super.onOpen(webSocket);
                         }
 
@@ -126,18 +114,21 @@ public class HttpBinanceWebSocketService {
         }
     }
 
-    /**
-     * Отключить все подписки.
-     */
     public synchronized void stopSubscriptions() {
-        sockets.forEach((sym, ws) -> {
-            log.info("WS closing for {}", sym);
-            try {
-                ws.sendClose(WebSocket.NORMAL_CLOSURE, "stop").join();
-            } catch (Exception e) {
-                log.warn("Error closing WS for {}: {}", sym, e.getMessage());
-            }
-        });
-        sockets.clear();
+        userSockets.forEach((chatId, map) -> stopSubscriptions(chatId));
+    }
+
+    public synchronized void stopSubscriptions(Long chatId) {
+        Map<String, WebSocket> sockets = userSockets.remove(chatId);
+        if (sockets != null) {
+            sockets.forEach((sym, ws) -> {
+                log.info("WS closing for chatId={} symbol={}", chatId, sym);
+                try {
+                    ws.sendClose(WebSocket.NORMAL_CLOSURE, "stop").join();
+                } catch (Exception e) {
+                    log.warn("Error closing WS for {}: {}", sym, e.getMessage());
+                }
+            });
+        }
     }
 }

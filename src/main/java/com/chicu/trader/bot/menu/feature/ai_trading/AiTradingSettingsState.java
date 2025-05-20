@@ -85,15 +85,25 @@ public class AiTradingSettingsState implements MenuState {
                 .text("📈 Плечо")
                 .callbackData("ai_trading_settings_leverage")
                 .build();
+
         InlineKeyboardButton candlesLimitBtn = InlineKeyboardButton.builder()
                 .text("📊 Количество свечей")
                 .callbackData("ai_trading_settings_cached_candles_limit")
                 .build();
+
         InlineKeyboardButton backtestBtn = InlineKeyboardButton.builder()
                 .text("🔬 Backtesting")
                 .callbackData("ai_trading_settings_backtesting")
                 .build();
 
+        InlineKeyboardButton mlStatsBtn = InlineKeyboardButton.builder()
+                .text("📊 ML-метрики")
+                .callbackData("ai_trading_stats")
+                .build();
+        InlineKeyboardButton testTrainBtn = InlineKeyboardButton.builder()
+                .text("🔁 Тест обучения")
+                .callbackData("ai_training_test_train") // ← новая кнопка
+                .build();
         InlineKeyboardButton backBtn = InlineKeyboardButton.builder()
                 .text("‹ Назад")
                 .callbackData("ai_trading")
@@ -111,7 +121,8 @@ public class AiTradingSettingsState implements MenuState {
                         List.of(notificationsBtn, modelVersionBtn),
                         List.of(leverageBtn),
                         List.of(backtestBtn),
-                        List.of(candlesLimitBtn),
+                        List.of(candlesLimitBtn, mlStatsBtn),
+                        List.of(testTrainBtn),
                         List.of(backBtn)
                 ))
                 .build();
@@ -156,7 +167,8 @@ public class AiTradingSettingsState implements MenuState {
             case "ai_trading_settings_leverage" -> "ai_trading_settings_leverage";
             case "ai_trading_settings_backtesting" -> "ai_trading_settings_backtesting";
             case "ai_trading_settings_cached_candles_limit" -> "ai_trading_settings_cached_candles_limit";
-
+            case "ai_trading_stats" -> "ai_trading_stats";
+            case "ai_training_test_train" -> "ai_training_test_train";
             case "ai_trading" -> MenuService.BACK;
             default -> name();
         };

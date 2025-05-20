@@ -17,4 +17,11 @@ public class MarketData {
     public float[] toFeatureArray() {
         return features;
     }
+
+    /**
+     * Возвращает двумерный массив для ONNX (batch = 1).
+     */
+    public float[][] toTensorInput() {
+        return new float[][] { features };
+    }
 }

@@ -1,56 +1,61 @@
-// src/main/java/com/chicu/trader/trading/ml/OnnxMlSignalFilter.java
 package com.chicu.trader.trading.ml;
 
 import ai.onnxruntime.*;
+import com.chicu.trader.bot.entity.AiTradingSettings;
+import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.trading.model.MarketData;
 import com.chicu.trader.trading.model.MarketSignal;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Primary;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
-import java.nio.FloatBuffer;
+import java.io.File;
 import java.util.Collections;
+import java.util.Map;
 
 @Slf4j
+@Primary
+@Order(1)
 @Component
+@RequiredArgsConstructor
 public class OnnxMlSignalFilter implements MlSignalFilter {
 
-    private final OrtEnvironment env;
-    private boolean available;
-
-    public OnnxMlSignalFilter() {
-        OrtEnvironment tmp = null;
-        boolean ok = false;
-        try {
-            tmp = OrtEnvironment.getEnvironment();
-            ok = true;
-            log.info("✅ ONNX Runtime environment initialized");
-        } catch (UnsatisfiedLinkError e) {
-            log.warn("⚠️ ONNX Runtime not available, ML filter disabled", e);
-        }
-        this.env = tmp;
-        this.available = ok;
-    }
+    private final AiTradingSettingsService settingsService;
 
     @Override
-    public MarketSignal predict(Long chatId, MarketData data) throws MlInferenceException {
-        if (!available) {
-            // fallback: always BUY
+    public MarketSignal predict(Long chatId, MarketData data) {
+        AiTradingSettings s = settingsService.getOrCreate(chatId);
+
+        String path = String.format(s.getMlModelPath(), chatId);
+        String inputName = s.getMlInputName();
+        double threshold = s.getMlThreshold();
+
+        if (!new File(path).exists()) {
+            log.warn("⚠️ Модель не найдена: {}", path);
             return MarketSignal.BUY;
         }
-        String path = String.format("models/%d/ml_signal_filter.onnx", chatId);
-        log.debug("ML inference for chatId={} using model {}", chatId, path);
-        try (OrtSession session = env.createSession(path, new OrtSession.SessionOptions())) {
-            float[] features = data.toFeatureArray();
-            OnnxTensor input = OnnxTensor.createTensor(env,
-                    FloatBuffer.wrap(features), new long[]{1, features.length});
-            try (OrtSession.Result result = session.run(Collections.singletonMap("input", input))) {
-                float[] output = (float[]) result.get(0).getValue();
-                float score = output.length > 1 ? output[1] : output[0];
-                return score > 0.5f ? MarketSignal.BUY : MarketSignal.SELL;
-            }
-        } catch (OrtException | UnsatisfiedLinkError e) {
-            log.error("❌ Error during ONNX inference for chatId={}", chatId, e);
-            throw new MlInferenceException("Inference failed for chatId=" + chatId, e);
+
+        try (OrtEnvironment env = OrtEnvironment.getEnvironment();
+             OrtSession session = env.createSession(path, new OrtSession.SessionOptions())) {
+
+            float[][] inputData = data.toTensorInput(); // ← теперь работает
+            OnnxTensor inputTensor = OnnxTensor.createTensor(env, inputData);
+
+            Map<String, OnnxTensor> inputs = Collections.singletonMap(inputName, inputTensor);
+            OrtSession.Result output = session.run(inputs);
+
+            float[][] result = (float[][]) output.get(0).getValue();
+            float score = result[0][0];
+
+            log.info("🧠 [chatId={}] ML-инференс score = {}", chatId, score);
+
+            return score >= threshold ? MarketSignal.BUY : MarketSignal.SKIP;
+
+        } catch (Exception e) {
+            log.error("Ошибка инференса: {}", e.getMessage(), e);
+            return MarketSignal.SKIP;
         }
     }
 }
