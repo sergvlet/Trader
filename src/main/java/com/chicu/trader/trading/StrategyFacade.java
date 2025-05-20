@@ -5,10 +5,10 @@ import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.model.ProfitablePair;
 import com.chicu.trader.model.TradeLog;
-import com.chicu.trader.repository.TradeLogRepository;
 import com.chicu.trader.trading.context.StrategyContext;
 import com.chicu.trader.trading.ml.MlSignalFilter;
 import com.chicu.trader.trading.model.Candle;
+import com.chicu.trader.trading.repository.TradeLogRepository;
 import com.chicu.trader.trading.service.AccountService;
 import com.chicu.trader.trading.service.CandleService;
 import com.chicu.trader.trading.service.OrderService;
@@ -26,17 +26,14 @@ import java.util.stream.Collectors;
 @Slf4j
 public class StrategyFacade {
 
-    private final CandleService candleService;
-    private final IndicatorService            indicatorService;
-    private final MlSignalFilter              mlFilter;
-    private final AiTradingSettingsService    settingsService;
-    private final AccountService              accountService;
-    private final OrderService                orderService;
-    private final TradeLogRepository          tradeLogRepository;
+    private final CandleService            candleService;
+    private final IndicatorService         indicatorService;
+    private final MlSignalFilter           mlFilter;
+    private final AiTradingSettingsService settingsService;
+    private final AccountService           accountService;
+    private final OrderService             orderService;
+    private final TradeLogRepository       tradeLogRepository;
 
-    /**
-     * Обрабатывает входные сигналы по списку профитных пар.
-     */
     public void applyStrategies(Long chatId, Candle currentCandle, List<ProfitablePair> pairs) {
         List<String> symbols = pairs.stream()
                 .map(ProfitablePair::getSymbol)
@@ -66,22 +63,19 @@ public class StrategyFacade {
         String symbol = ctx.getSymbol();
         AiTradingSettings settings = settingsService.getOrCreate(chatId);
 
-        // Определяем объём сделки: % баланса на сделку
         double balance = accountService.getFreeBalance(chatId, symbol.replaceAll("[A-Z]+$", ""));
-        double riskPct = settings.getRiskThreshold(); // например 1.0 = 1%
-        double amountUsd = balance * riskPct / 100.0;
-        double quantity = amountUsd / ctx.getPrice();
+        double riskPct = settings.getRiskThreshold();
+        double usd     = balance * riskPct / 100.0;
+        double qty     = usd / ctx.getPrice();
 
-        // Отправляем OCO-ордер: стоп-лосс + тейк-профит
         orderService.placeOcoOrder(
                 chatId,
                 symbol,
-                quantity,
+                qty,
                 ctx.getSlPrice(),
                 ctx.getTpPrice()
         );
 
-        // Сохраняем лог входа
         TradeLog entry = TradeLog.builder()
                 .userChatId(chatId)
                 .symbol(symbol)
@@ -89,31 +83,29 @@ public class StrategyFacade {
                 .entryPrice(ctx.getPrice())
                 .takeProfitPrice(ctx.getTpPrice())
                 .stopLossPrice(ctx.getSlPrice())
-                .quantity(quantity)
+                .quantity(qty)
                 .isClosed(false)
                 .build();
         tradeLogRepository.save(entry);
 
         log.info("Вход: chatId={}, symbol={}, qty={}, TP={}, SL={}",
-                chatId, symbol, quantity, ctx.getTpPrice(), ctx.getSlPrice());
+                chatId, symbol, qty, ctx.getTpPrice(), ctx.getSlPrice());
     }
 
     private void exitTrade(TradeLog logEntry) {
-        Long chatId = logEntry.getUserChatId();
-        String symbol = logEntry.getSymbol();
-        double exitQty = logEntry.getQuantity();
-        double exitPrice = logEntry.getExitPrice();
+        Long chatId    = logEntry.getUserChatId();
+        String symbol  = logEntry.getSymbol();
+        double qty     = logEntry.getQuantity();
+        double exitPr  = logEntry.getExitPrice();
 
-        // Отправляем рыночный ордер на выход
-        orderService.placeMarketOrder(chatId, symbol, exitQty);
+        orderService.placeMarketOrder(chatId, symbol, qty);
 
-        // Обновляем лог выхода
         logEntry.setExitTime(Instant.now());
         logEntry.setClosed(true);
-        logEntry.setPnl((exitPrice - logEntry.getEntryPrice()) * exitQty);
+        logEntry.setPnl((exitPr - logEntry.getEntryPrice()) * qty);
         tradeLogRepository.save(logEntry);
 
         log.info("Выход: chatId={}, symbol={}, qty={}, exitPrice={}, PnL={}",
-                chatId, symbol, exitQty, exitPrice, logEntry.getPnl());
+                chatId, symbol, qty, exitPr, logEntry.getPnl());
     }
 }

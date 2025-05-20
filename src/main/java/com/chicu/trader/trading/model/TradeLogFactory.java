@@ -3,54 +3,48 @@ package com.chicu.trader.trading.model;
 
 import com.chicu.trader.model.TradeLog;
 import com.chicu.trader.trading.context.StrategyContext;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
-
 import java.time.Instant;
-import java.util.Optional;
 
-@Component
-@RequiredArgsConstructor
 public class TradeLogFactory {
 
-    /**
-     * Создаёт запись входа по контексту стратегии.
-     */
-    public TradeLog createEntry(StrategyContext ctx) {
-        return TradeLog.builder()
-            .userChatId(ctx.getChatId())
-            .symbol(ctx.getSymbol())
-            .entryTime(Instant.ofEpochMilli(ctx.getCandle().getCloseTime()))
-            .entryPrice(ctx.getPrice())
-            .takeProfitPrice(ctx.getTpPrice())
-            .stopLossPrice(ctx.getSlPrice())
-            .isClosed(false)
-            .build();
+    private TradeLogFactory() {
+        // Невозможно инстанцировать
     }
 
     /**
-     * Создаёт запись выхода по контексту и существующему лог-входу.
+     * Построить лог входа по контексту стратегии.
      */
-    public Optional<TradeLog> createExit(StrategyContext ctx, TradeLog entry) {
-        Optional<TradeLog> opt = ctx.getExitLog();
-        if (opt.isEmpty()) {
-            return Optional.empty();
-        }
-        TradeLog exit = opt.get();
-        // Заполняем поля из entry и выхода
-        return Optional.of(
-            TradeLog.builder()
+    public static TradeLog createEntryLog(StrategyContext ctx) {
+        return TradeLog.builder()
                 .userChatId(ctx.getChatId())
                 .symbol(ctx.getSymbol())
-                .entryTime(entry.getEntryTime())
-                .entryPrice(entry.getEntryPrice())
-                .exitTime(exit.getExitTime())
-                .exitPrice(exit.getExitPrice())
-                .takeProfitPrice(entry.getTakeProfitPrice())
-                .stopLossPrice(entry.getStopLossPrice())
-                .pnl(exit.getPnl())
+                .entryTime(Instant.ofEpochMilli(ctx.getCandle().getCloseTime()))
+                .entryPrice(ctx.getPrice())
+                .takeProfitPrice(ctx.getTpPrice())
+                .stopLossPrice(ctx.getSlPrice())
+                .isClosed(false)
+                .build();
+    }
+
+    /**
+     * Построить лог выхода по сохранённому логу входа и текущему контексту.
+     * Берёт exitPrice и exitTime из контекста, расчёт PnL делает по entryPrice из переданного log.
+     */
+    public static TradeLog createExitLog(StrategyContext ctx, TradeLog entryLog) {
+        double exitPrice = ctx.getPrice();
+        double pnl       = (exitPrice - entryLog.getEntryPrice()) * entryLog.getQuantity();
+
+        return TradeLog.builder()
+                .userChatId(ctx.getChatId())
+                .symbol(ctx.getSymbol())
+                .entryTime(entryLog.getEntryTime())
+                .entryPrice(entryLog.getEntryPrice())
+                .takeProfitPrice(entryLog.getTakeProfitPrice())
+                .stopLossPrice(entryLog.getStopLossPrice())
+                .exitTime(Instant.ofEpochMilli(ctx.getCandle().getCloseTime()))
+                .exitPrice(exitPrice)
+                .pnl(pnl)
                 .isClosed(true)
-                .build()
-        );
+                .build();
     }
 }

@@ -2,28 +2,22 @@
 package com.chicu.trader.trading;
 
 import com.chicu.trader.bot.config.AiTradingDefaults;
-import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.trading.model.Candle;
 import com.chicu.trader.trading.optimizer.TpSlOptimizer;
-import com.chicu.trader.trading.service.CandleService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class DailyOptimizer {
 
-    private final CandleService candleService;
-    private final TpSlOptimizer             optimizer;
-    private final AiTradingSettingsService  settingsService;
-    private final AiTradingDefaults         defaults;
+    private final TpSlOptimizer            optimizer;
+    private final AiTradingSettingsService settingsService;
+    private final AiTradingDefaults        defaults;
 
     /**
      * Ежедневная оптимизация всех параметров.
@@ -31,7 +25,6 @@ public class DailyOptimizer {
      */
     @Scheduled(cron = "0 0 3 * * *", zone = "Europe/Warsaw")
     public void nightlyUpdate() {
-        log.info("Запускаю ночную оптимизацию для всех пользователей");
         settingsService.findAllChatIds()
                 .forEach(this::optimizeAllForChat);
     }
@@ -41,25 +34,17 @@ public class DailyOptimizer {
      * таймфрейм, риск и макс. просадку для конкретного chatId.
      */
     public OptimizationResult optimizeAllForChat(Long chatId) {
-        AiTradingSettings settings = settingsService.getOrCreate(chatId);
+        // 1) TP/SL оптимизация по истории, реализация внутри optimizer
+        TpSlOptimizer.Result tpSl = optimizer.optimize(historyForChat(chatId));
 
-        // 1) Собираем список символов
+        // 2) Текущие настройки пользователя
+        var settings = settingsService.getOrCreate(chatId);
+        int topN = settings.getTopN();
         List<String> symbols = settings.getSymbols() != null && !settings.getSymbols().isBlank()
                 ? List.of(settings.getSymbols().split(","))
                 : List.of();
 
-        // 2) Составляем объединённый список свечей
-        List<Candle> allCandles = symbols.stream()
-                .flatMap(sym -> candleService.historyHourly(chatId, sym, 100).stream())
-                .collect(Collectors.toList());
-
-        // 3) TP/SL оптимизация по списку свечей
-        TpSlOptimizer.Result tpSl = optimizer.optimize(allCandles);
-
-        // 4) Top N
-        int topN = settings.getTopN();
-
-        // 5) Таймфрейм, риск и макс. просадка
+        // 3) Таймфрейм, риск и просадка из настроек или дефолтов
         String timeframe = settings.getTimeframe();
         double riskThreshold = settings.getRiskThreshold() != null
                 ? settings.getRiskThreshold()
@@ -68,9 +53,7 @@ public class DailyOptimizer {
                 ? settings.getMaxDrawdown()
                 : defaults.getDefaultMaxDrawdown();
 
-        log.info("Оптимизация для chatId={} завершена: TP={} SL={}",
-                chatId, tpSl.getTpPct(), tpSl.getSlPct());
-
+        // 4) Собираем и возвращаем результат
         return OptimizationResult.builder()
                 .tp(tpSl.getTpPct())
                 .sl(tpSl.getSlPct())
@@ -80,5 +63,14 @@ public class DailyOptimizer {
                 .riskThreshold(riskThreshold)
                 .maxDrawdown(maxDrawdown)
                 .build();
+    }
+
+    /**
+     * Заглушка: получить из базы/сервиса историю свечей,
+     * необходимую optimizer'у. Реализуйте по своему усмотрению.
+     */
+    private List<Candle> historyForChat(Long chatId) {
+        // например, settingsService или отдельный CandleService можно вызвать тут
+        throw new UnsupportedOperationException("Реализуйте historyForChat(...)");
     }
 }

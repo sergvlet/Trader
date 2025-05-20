@@ -34,23 +34,32 @@ public class AiTradingSlippageToleranceState implements MenuState {
         InlineKeyboardButton back = InlineKeyboardButton.builder()
                 .text("‹ Назад").callbackData("ai_trading_settings").build();
         this.kb = InlineKeyboardMarkup.builder()
-            .keyboard(List.of(
-                List.of(inc, dec),
-                List.of(def),
-                List.of(save),
-                List.of(back)
-            )).build();
+                .keyboard(List.of(
+                        List.of(inc, dec),
+                        List.of(def),
+                        List.of(save),
+                        List.of(back)
+                )).build();
     }
 
-    @Override public String name() { return "ai_trading_settings_slippage_tolerance"; }
+    @Override
+    public String name() {
+        return "ai_trading_settings_slippage_tolerance";
+    }
 
     @Override
     public SendMessage render(Long chatId) {
         AiTradingSettings s = svc.getOrCreate(chatId);
-        double val = s.getSlippageTolerance() != null 
-            ? s.getSlippageTolerance() : defaults.getDefaultSlippageTolerance();
+        double val = s.getSlippageTolerance() != null
+                ? s.getSlippageTolerance() : defaults.getDefaultSlippageTolerance();
         String text = String.format(
-            "*Проскальзывание*\nТекущее: `%.1f%%`", val
+                """
+                        *Проскальзывание*
+                        Текущее: `%.2f%%`
+                        
+                        _Проскальзывание_ — это максимальное возможное отклонение цены исполнения от запрошенной. \
+                        Если рынок движется быстрее, ордер будет исполнен с ценой, отличающейся не более чем на указанный процент.""",
+                val
         );
         return SendMessage.builder()
                 .chatId(chatId.toString())
@@ -64,16 +73,26 @@ public class AiTradingSlippageToleranceState implements MenuState {
         String data = u.getCallbackQuery().getData();
         Long cid = u.getCallbackQuery().getMessage().getChatId();
         AiTradingSettings s = svc.getOrCreate(cid);
-        double val = s.getSlippageTolerance() != null 
-            ? s.getSlippageTolerance() : defaults.getDefaultSlippageTolerance();
+        double val = s.getSlippageTolerance() != null
+                ? s.getSlippageTolerance() : defaults.getDefaultSlippageTolerance();
 
         switch (data) {
-            case "slippage_inc"     -> val += 0.1;
-            case "slippage_dec"     -> val = Math.max(0.0, val - 0.1);
-            case "slippage_default" -> { svc.resetSlippageToleranceDefaults(cid); return name(); }
-            case "slippage_save"    -> { svc.updateSlippageTolerance(cid, val); return "ai_trading_settings"; }
-            case "ai_trading_settings" -> { return "ai_trading_settings"; }
-            default                 -> { return name(); }
+            case "slippage_inc" -> val += 0.1;
+            case "slippage_dec" -> val = Math.max(0.0, val - 0.1);
+            case "slippage_default" -> {
+                svc.resetSlippageToleranceDefaults(cid);
+                return name();
+            }
+            case "slippage_save" -> {
+                svc.updateSlippageTolerance(cid, val);
+                return "ai_trading_settings";
+            }
+            case "ai_trading_settings" -> {
+                return "ai_trading_settings";
+            }
+            default -> {
+                return name();
+            }
         }
         svc.updateSlippageTolerance(cid, val);
         return name();

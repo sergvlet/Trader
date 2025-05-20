@@ -15,7 +15,6 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
-import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.util.List;
 import java.util.Map;
@@ -36,48 +35,92 @@ public class TraderTelegramBot extends TelegramLongPollingBot {
     @PostConstruct
     private void init() {
         callbackCommandMap = callbackCommands.stream()
-            .collect(Collectors.toUnmodifiableMap(CallbackCommand::getKey, c -> c));
+                .collect(Collectors.toUnmodifiableMap(CallbackCommand::getKey, c -> c));
     }
 
     @Override public String getBotUsername() { return props.getUsername(); }
-    @Override public String getBotToken()    { return props.getToken(); }
+    @Override public String getBotToken()    { return props.getToken();   }
 
     @Override
     public void onUpdateReceived(Update update) {
-        Long chatId = extractChatId(update);
+        Long chatId;
+        try {
+            chatId = extractChatId(update);
+        } catch (Exception e) {
+            log.error("Не удалось извлечь chatId из обновления", e);
+            return;
+        }
 
-        menuService.popNotice(chatId).ifPresent(this::executeUnchecked);
+        // 1) вывести накопленные нотификации
+        try {
+            menuService.popNotice(chatId).ifPresent(this::executeUnchecked);
+        } catch (Exception e) {
+            log.error("Ошибка popNotice для chatId={}", chatId, e);
+        }
 
+        // 2) дальше в зависимости от типа входа
         if (update.hasCallbackQuery()) {
-            String data = update.getCallbackQuery().getData();
-
-            if ("ai_trading:start".equals(data)) {
-                data = "ai_trading";
-            } else if ("ai_trading:stop".equals(data)) {
-                data = "ai_trading";
-            } else {
-                CallbackCommand cmd = callbackCommandMap.get(data);
-                if (cmd != null) {
-                    cmd.execute(update, this);
-                }
-                data = menuService.handleInput(update);
-            }
-
-            int messageId = update.getCallbackQuery().getMessage().getMessageId();
-            SendMessage rendered = menuService.renderState(data, chatId);
-            EditMessageText edit = EditMessageText.builder()
-                .chatId(chatId.toString())
-                .messageId(messageId)
-                .text(rendered.getText())
-                .parseMode(rendered.getParseMode())
-                .replyMarkup((InlineKeyboardMarkup) rendered.getReplyMarkup())
-                .build();
-            executeUnchecked(edit);
-
+            handleCallback(update, chatId);
         } else {
-            String next = menuService.handleInput(update);
-            SendMessage out = menuService.renderState(next, chatId);
+            handleMessage(update, chatId);
+        }
+    }
+
+    private void handleCallback(Update update, Long chatId) {
+        String data = update.getCallbackQuery().getData();
+
+        // a) CallbackCommand
+        try {
+            CallbackCommand cmd = callbackCommandMap.get(data);
+            if (cmd != null) {
+                cmd.execute(update, this);
+            }
+        } catch (Exception e) {
+            log.error("Ошибка в CallbackCommand для data={}", data, e);
+        }
+
+        // b) state switch
+        String nextState;
+        try {
+            nextState = menuService.handleInput(update);
+        } catch (Exception e) {
+            log.error("Ошибка handleInput (callback) data={}", data, e);
+            nextState = "main";  // <-- имя вашего корневого состояния
+        }
+
+        // c) render & edit
+        try {
+            SendMessage rendered = menuService.renderState(nextState, chatId);
+            EditMessageText edit = EditMessageText.builder()
+                    .chatId(chatId.toString())
+                    .messageId(update.getCallbackQuery().getMessage().getMessageId())
+                    .text(rendered.getText())
+                    .parseMode(rendered.getParseMode())
+                    .replyMarkup((InlineKeyboardMarkup) rendered.getReplyMarkup())
+                    .build();
+            executeUnchecked(edit);
+        } catch (Exception e) {
+            log.error("Ошибка renderState/executeUnchecked (callback)", e);
+            // на всякий случай сбросить в главное
+            executeUnchecked(menuService.renderState("main", chatId));
+        }
+    }
+
+    private void handleMessage(Update update, Long chatId) {
+        String nextState;
+        try {
+            nextState = menuService.handleInput(update);
+        } catch (Exception e) {
+            log.error("Ошибка handleInput (message)", e);
+            nextState = "main";  // <-- имя вашего корневого состояния
+        }
+
+        try {
+            SendMessage out = menuService.renderState(nextState, chatId);
             executeUnchecked(out);
+        } catch (Exception e) {
+            log.error("Ошибка renderState/executeUnchecked (message)", e);
+            executeUnchecked(menuService.renderState("main", chatId));
         }
     }
 
@@ -96,12 +139,14 @@ public class TraderTelegramBot extends TelegramLongPollingBot {
         } catch (org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException e) {
             String resp = e.getApiResponse();
             if (resp != null && resp.contains("message is not modified")) {
-                return; // игнорируем
+                // benign
+                return;
             }
             log.error("Telegram API request failed: {}", resp, e);
         } catch (org.telegram.telegrambots.meta.exceptions.TelegramApiException e) {
             log.error("Telegram API error on {}: {}", method, e.getMessage(), e);
+        } catch (Exception e) {
+            log.error("Неожиданная ошибка при исполнении метода Telegram API", e);
         }
     }
-
 }
