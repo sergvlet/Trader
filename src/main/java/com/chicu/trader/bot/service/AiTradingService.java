@@ -1,6 +1,7 @@
 // src/main/java/com/chicu/trader/bot/service/AiTradingService.java
 package com.chicu.trader.bot.service;
 
+import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.entity.UserSettings;
 import com.chicu.trader.bot.repository.UserSettingsRepository;
 import lombok.RequiredArgsConstructor;
@@ -51,4 +52,5 @@ public class AiTradingService {
     public String getLastEvent(Long chatId) {
         return "";
     }
+
 }

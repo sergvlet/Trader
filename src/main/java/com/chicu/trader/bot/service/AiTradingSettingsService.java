@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/bot/service/AiTradingSettingsService.java
 package com.chicu.trader.bot.service;
 
 import com.chicu.trader.bot.config.AiTradingDefaults;
@@ -14,7 +13,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.transaction.Transactional;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
@@ -29,22 +27,15 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-
 public class AiTradingSettingsService {
 
-
     private final AiTradingSettingsRepository settingsRepo;
-    private final UserRepository              userRepo;
-    private final AiTradingDefaults           defaults;
-    private final ProfitablePairRepository    pairRepo;
-    private final MlModelTrainer              modelTrainer;
-    private final AiTradingService            aiTradingService;
-
-    /**
-     * Отложенная (lazy) ссылка на DailyOptimizer, чтобы разорвать цикл:
-     * AiTradingSettingsService → DailyOptimizer → AiTradingSettingsService
-     */
-    private final DailyOptimizer              optimizer;
+    private final UserRepository userRepo;
+    private final AiTradingDefaults defaults;
+    private final ProfitablePairRepository pairRepo;
+    private final MlModelTrainer modelTrainer;
+    private final AiTradingService aiTradingService;
+    private final DailyOptimizer optimizer;
 
     public AiTradingSettingsService(AiTradingSettingsRepository settingsRepo,
                                     UserRepository userRepo,
@@ -54,17 +45,15 @@ public class AiTradingSettingsService {
                                     MlModelTrainer modelTrainer,
                                     AiTradingService aiTradingService,
                                     @Lazy DailyOptimizer optimizer) {
-        this.settingsRepo    = settingsRepo;
-        this.userRepo        = userRepo;
-        this.defaults        = defaults;
-        this.pairRepo        = pairRepo;
-        this.modelTrainer    = modelTrainer;
-        this.aiTradingService= aiTradingService;
-        this.optimizer       = optimizer;  // теперь lazy
+        this.settingsRepo = settingsRepo;
+        this.userRepo = userRepo;
+        this.defaults = defaults;
+        this.pairRepo = pairRepo;
+        this.modelTrainer = modelTrainer;
+        this.aiTradingService = aiTradingService;
+        this.optimizer = optimizer;
     }
-    /**
-     * Найти или создать настройки для chatId с дефолтами
-     */
+
     @Transactional
     public AiTradingSettings getOrCreate(Long chatId) {
         return settingsRepo.findById(chatId)
@@ -92,13 +81,13 @@ public class AiTradingSettingsService {
                             .orderType(defaults.getDefaultOrderType())
                             .notificationsEnabled(defaults.isDefaultNotificationsEnabled())
                             .modelVersion(defaults.getDefaultModelVersion())
+                            .cachedCandlesLimit(defaults.getDefaultCachedCandlesLimit())
                             .build();
                     log.info("Созданы настройки AI для chatId={}", chatId);
                     return settingsRepo.save(s);
                 });
     }
 
-    // TP/SL
     public void updateTpSl(Long chatId, String tpSlJson) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setTpSlConfig(tpSlJson);
@@ -112,7 +101,6 @@ public class AiTradingSettingsService {
         updateTpSl(chatId, obj.toString());
     }
 
-    // Timeframe
     public void updateTimeframe(Long chatId, String timeframe) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setTimeframe(timeframe);
@@ -123,7 +111,6 @@ public class AiTradingSettingsService {
         updateTimeframe(chatId, defaults.getDefaultTimeframe());
     }
 
-    // Top N
     public void updateTopN(Long chatId, Integer topN) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setTopN(topN);
@@ -134,7 +121,6 @@ public class AiTradingSettingsService {
         updateTopN(chatId, defaults.getDefaultTopN());
     }
 
-    // Symbols
     public void updateSymbols(Long chatId, String symbolsCsv) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setSymbols(symbolsCsv);
@@ -145,7 +131,6 @@ public class AiTradingSettingsService {
         updateSymbols(chatId, defaults.getDefaultSymbols());
     }
 
-    // Risk threshold
     public void updateRiskThreshold(Long chatId, Double riskPercent) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setRiskThreshold(riskPercent);
@@ -156,18 +141,16 @@ public class AiTradingSettingsService {
         updateRiskThreshold(chatId, defaults.getDefaultRiskThreshold());
     }
 
-    // Max drawdown
     public void updateMaxDrawdown(Long chatId, Double drawdownPercent) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setMaxDrawdown(drawdownPercent);
         settingsRepo.save(s);
     }
 
-    public void resetDrawdownDefaults(Long chatId) {
+    public void resetMaxDrawdownDefaults(Long chatId) {
         updateMaxDrawdown(chatId, defaults.getDefaultMaxDrawdown());
     }
 
-    // Leverage
     public void updateLeverage(Long chatId, Integer leverage) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setLeverage(leverage);
@@ -178,7 +161,6 @@ public class AiTradingSettingsService {
         updateLeverage(chatId, defaults.getDefaultLeverage());
     }
 
-    // Max positions
     public void updateMaxPositions(Long chatId, Integer maxPositions) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setMaxPositions(maxPositions);
@@ -189,7 +171,6 @@ public class AiTradingSettingsService {
         updateMaxPositions(chatId, defaults.getDefaultMaxPositions());
     }
 
-    // Trade cooldown
     public void updateTradeCooldown(Long chatId, Integer minutes) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setTradeCooldown(minutes);
@@ -200,7 +181,6 @@ public class AiTradingSettingsService {
         updateTradeCooldown(chatId, defaults.getDefaultTradeCooldown());
     }
 
-    // Slippage tolerance
     public void updateSlippageTolerance(Long chatId, Double tolerance) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setSlippageTolerance(tolerance);
@@ -211,7 +191,6 @@ public class AiTradingSettingsService {
         updateSlippageTolerance(chatId, defaults.getDefaultSlippageTolerance());
     }
 
-    // Order type
     public void updateOrderType(Long chatId, String type) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setOrderType(type);
@@ -222,7 +201,6 @@ public class AiTradingSettingsService {
         updateOrderType(chatId, defaults.getDefaultOrderType());
     }
 
-    // Notifications
     public void updateNotificationsEnabled(Long chatId, Boolean enabled) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setNotificationsEnabled(enabled);
@@ -233,7 +211,6 @@ public class AiTradingSettingsService {
         updateNotificationsEnabled(chatId, defaults.isDefaultNotificationsEnabled());
     }
 
-    // Model version
     public void updateModelVersion(Long chatId, String version) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setModelVersion(version);
@@ -244,7 +221,6 @@ public class AiTradingSettingsService {
         updateModelVersion(chatId, defaults.getDefaultModelVersion());
     }
 
-    // Pair suggestions
     public List<String> suggestPairs(Long chatId) {
         AiTradingSettings s = getOrCreate(chatId);
         int topN = Optional.ofNullable(s.getTopN()).orElse(defaults.getDefaultTopN());
@@ -256,9 +232,6 @@ public class AiTradingSettingsService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Асинхронное обучение, оптимизация и включение AI-торговли
-     */
     @Async("mlExecutor")
     public CompletableFuture<Void> trainAndApplyAsync(Long chatId) {
         log.info("🔄 Запуск бэктеста для chatId={}", chatId);
@@ -287,20 +260,27 @@ public class AiTradingSettingsService {
         return CompletableFuture.completedFuture(null);
     }
 
-    /**
-     * Ежедневный бэктест всех пользователей в 03:00 Europe/Warsaw
-     */
     @Scheduled(cron = "0 0 3 * * *", zone = "Europe/Warsaw")
     public void dailyBacktestAll() {
         findAllChatIds().forEach(this::trainAndApplyAsync);
     }
 
-    /**
-     * Вернуть все chatId с настроенными AI-торговлей
-     */
     public List<Long> findAllChatIds() {
         return settingsRepo.findAll().stream()
                 .map(AiTradingSettings::getChatId)
                 .collect(Collectors.toList());
+    }
+
+    public AiTradingSettings save(AiTradingSettings settings) {
+        return settingsRepo.save(settings);
+    }
+    public void updateCachedCandlesLimit(Long chatId, Integer limit) {
+        AiTradingSettings s = getOrCreate(chatId);
+        s.setCachedCandlesLimit(limit);
+        settingsRepo.save(s);
+    }
+
+    public void resetCachedCandlesLimitDefaults(Long chatId) {
+        updateCachedCandlesLimit(chatId, defaults.getDefaultCachedCandlesLimit());
     }
 }

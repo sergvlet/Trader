@@ -88,6 +88,9 @@ public class AiTradingSettings {
     @Column(name = "leverage")
     private Integer leverage;
 
+    @Column(name = "cached_candles_limit")
+    private Integer cachedCandlesLimit = 500;
+
     /** Версия для оптимистичной блокировки */
     @Version
     private Long version;

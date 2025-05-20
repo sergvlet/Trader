@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/bot/config/AiTradingDefaults.java
 package com.chicu.trader.bot.config;
 
 import lombok.Getter;
@@ -58,4 +57,7 @@ public class AiTradingDefaults {
 
     /** Плечо по умолчанию (1х) */
     private final int defaultLeverage = 1;
+
+    /** Количество свечей для кэширования по умолчанию */
+    private final int defaultCachedCandlesLimit = 500;
 }

@@ -96,7 +96,7 @@ public class AiTradingDrawdownState implements MenuState {
             case "drawdown_inc"     -> dd = dd + 1.0;
             case "drawdown_dec"     -> dd = Math.max(1.0, dd - 1.0);
             case "drawdown_default" -> {
-                settingsService.resetDrawdownDefaults(chatId);
+                settingsService.resetMaxDrawdownDefaults(chatId);
                 return name();
             }
             case "drawdown_save"    -> {
