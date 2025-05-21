@@ -1,76 +1,63 @@
 // src/main/java/com/chicu/trader/trading/DailyOptimizer.java
 package com.chicu.trader.trading;
 
-import com.chicu.trader.bot.config.AiTradingDefaults;
+import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.trading.model.Candle;
-import com.chicu.trader.trading.optimizer.TpSlOptimizer;
+import com.chicu.trader.trading.service.CandleService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.List;
 
-@Component
+@Slf4j
+@Service
 @RequiredArgsConstructor
 public class DailyOptimizer {
 
-    private final TpSlOptimizer            optimizer;
-    private final AiTradingSettingsService settingsService;
-    private final AiTradingDefaults        defaults;
+    private final AiTradingSettingsService aiSettingsService;
+    private final CandleService candleService;
 
-    /**
-     * Ежедневная оптимизация всех параметров.
-     * Запускается в 03:00 Europe/Warsaw.
-     */
-    @Scheduled(cron = "0 0 3 * * *", zone = "Europe/Warsaw")
-    public void nightlyUpdate() {
-        settingsService.findAllChatIds()
-                .forEach(this::optimizeAllForChat);
-    }
-
-    /**
-     * Подобрать оптимальные значения TP/SL, TopN, список символов,
-     * таймфрейм, риск и макс. просадку для конкретного chatId.
-     */
     public OptimizationResult optimizeAllForChat(Long chatId) {
-        // 1) TP/SL оптимизация по истории, реализация внутри optimizer
-        TpSlOptimizer.Result tpSl = optimizer.optimize(historyForChat(chatId));
+        log.info("🚀 Запуск оптимизации параметров для chatId={}", chatId);
 
-        // 2) Текущие настройки пользователя
-        var settings = settingsService.getOrCreate(chatId);
-        int topN = settings.getTopN();
-        List<String> symbols = settings.getSymbols() != null && !settings.getSymbols().isBlank()
-                ? List.of(settings.getSymbols().split(","))
-                : List.of();
+        List<Candle> candles = historyForChat(chatId);
 
-        // 3) Таймфрейм, риск и просадка из настроек или дефолтов
-        String timeframe = settings.getTimeframe();
-        double riskThreshold = settings.getRiskThreshold() != null
-                ? settings.getRiskThreshold()
-                : defaults.getDefaultRiskThreshold();
-        double maxDrawdown = settings.getMaxDrawdown() != null
-                ? settings.getMaxDrawdown()
-                : defaults.getDefaultMaxDrawdown();
-
-        // 4) Собираем и возвращаем результат
+        // Здесь твоя логика оптимизации на основе свечей:
+        // Например — подбираем tp/sl, timeframe, pairs, ...
+        // Пока заглушка:
         return OptimizationResult.builder()
-                .tp(tpSl.getTpPct())
-                .sl(tpSl.getSlPct())
-                .topN(topN)
-                .symbols(symbols)
-                .timeframe(timeframe)
-                .riskThreshold(riskThreshold)
-                .maxDrawdown(maxDrawdown)
+                .tp(0.03)
+                .sl(0.01)
+                .symbols(List.of("BTCUSDT", "ETHUSDT"))
+                .topN(2)
+                .timeframe("1h")
+                .riskThreshold(0.1)
+                .maxDrawdown(0.2)
+                .leverage(3)
+                .maxPositions(2)
+                .tradeCooldown(15)
+                .slippageTolerance(0.01)
+                .orderType("MARKET")
+                .notificationsEnabled(true)
+                .modelVersion("v1")
                 .build();
     }
 
-    /**
-     * Заглушка: получить из базы/сервиса историю свечей,
-     * необходимую optimizer'у. Реализуйте по своему усмотрению.
-     */
-    private List<Candle> historyForChat(Long chatId) {
-        // например, settingsService или отдельный CandleService можно вызвать тут
-        throw new UnsupportedOperationException("Реализуйте historyForChat(...)");
+    public List<Candle> historyForChat(Long chatId) {
+        AiTradingSettings settings = aiSettingsService.getOrCreate(chatId);
+
+        String symbol = settings.getSymbols() != null
+                ? settings.getSymbols().split(",")[0]
+                : "BTCUSDT";
+
+        Duration timeframe = Duration.ofHours(1); // или преобразуй settings.getTimeframe()
+        int limit = 120;
+
+        log.info("📥 Загрузка истории свечей для chatId={} symbol={} limit={}", chatId, symbol, limit);
+
+        return candleService.history(symbol, timeframe, limit);
     }
 }
