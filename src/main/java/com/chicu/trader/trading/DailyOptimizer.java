@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/trading/DailyOptimizer.java
 package com.chicu.trader.trading;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
@@ -10,7 +9,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -21,43 +21,114 @@ public class DailyOptimizer {
     private final CandleService candleService;
 
     public OptimizationResult optimizeAllForChat(Long chatId) {
-        log.info("🚀 Запуск оптимизации параметров для chatId={}", chatId);
+        log.info("🚀 Оптимизация параметров для chatId={}", chatId);
 
-        List<Candle> candles = historyForChat(chatId);
+        AiTradingSettings settings = aiSettingsService.getOrCreate(chatId);
 
-        // Здесь твоя логика оптимизации на основе свечей:
-        // Например — подбираем tp/sl, timeframe, pairs, ...
-        // Пока заглушка:
+        List<String> symbols = getSymbols(settings);
+        Duration timeframe = parseTimeframe(settings.getTimeframe());
+        int candleLimit = Optional.ofNullable(settings.getCachedCandlesLimit()).orElse(500);
+
+        Map<String, Double> profitMap = new HashMap<>();
+        Map<String, List<Candle>> allCandles = new HashMap<>();
+
+        for (String symbol : symbols) {
+            List<Candle> candles = candleService.history(symbol, timeframe, candleLimit);
+            if (candles.size() < 50) {
+                log.warn("⛔ Недостаточно данных для symbol={} ({} свечей)", symbol, candles.size());
+                continue;
+            }
+
+            double score = estimateProfitability(candles);
+            profitMap.put(symbol, score);
+            allCandles.put(symbol, candles);
+        }
+
+        List<String> selected = profitMap.entrySet().stream()
+                .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
+                .limit(settings.getTopN())
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+
+        List<Candle> merged = selected.stream()
+                .flatMap(s -> allCandles.get(s).stream())
+                .collect(Collectors.toList());
+
+        double recommendedTp = computeDynamicTp(merged);
+        double recommendedSl = computeDynamicSl(merged);
+
+        log.info("📊 Выбраны пары: {}, TP=%.4f, SL=%.4f", selected, recommendedTp, recommendedSl);
+
         return OptimizationResult.builder()
-                .tp(0.03)
-                .sl(0.01)
-                .symbols(List.of("BTCUSDT", "ETHUSDT"))
-                .topN(2)
-                .timeframe("1h")
-                .riskThreshold(0.1)
-                .maxDrawdown(0.2)
-                .leverage(3)
-                .maxPositions(2)
-                .tradeCooldown(15)
-                .slippageTolerance(0.01)
-                .orderType("MARKET")
-                .notificationsEnabled(true)
-                .modelVersion("v1")
+                .tp(recommendedTp)
+                .sl(recommendedSl)
+                .symbols(selected)
+                .topN(settings.getTopN())
+                .timeframe(settings.getTimeframe())
+                .riskThreshold(settings.getRiskThreshold())
+                .maxDrawdown(settings.getMaxDrawdown())
+                .leverage(settings.getLeverage())
+                .maxPositions(settings.getMaxPositions())
+                .tradeCooldown(settings.getTradeCooldown())
+                .slippageTolerance(settings.getSlippageTolerance())
+                .orderType(settings.getOrderType())
+                .notificationsEnabled(settings.getNotificationsEnabled())
+                .modelVersion(settings.getModelVersion())
                 .build();
     }
 
-    public List<Candle> historyForChat(Long chatId) {
-        AiTradingSettings settings = aiSettingsService.getOrCreate(chatId);
+    private List<String> getSymbols(AiTradingSettings settings) {
+        String symbolsStr = Optional.ofNullable(settings.getSymbols()).orElse("BTCUSDT,ETHUSDT");
+        return Arrays.stream(symbolsStr.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.toList());
+    }
 
-        String symbol = settings.getSymbols() != null
-                ? settings.getSymbols().split(",")[0]
-                : "BTCUSDT";
+    private Duration parseTimeframe(String tf) {
+        if (tf == null) return Duration.ofHours(1);
+        return switch (tf.toLowerCase()) {
+            case "1m" -> Duration.ofMinutes(1);
+            case "5m" -> Duration.ofMinutes(5);
+            case "15m" -> Duration.ofMinutes(15);
+            case "1h" -> Duration.ofHours(1);
+            case "4h" -> Duration.ofHours(4);
+            case "1d" -> Duration.ofDays(1);
+            default -> Duration.ofHours(1);
+        };
+    }
 
-        Duration timeframe = Duration.ofHours(1); // или преобразуй settings.getTimeframe()
-        int limit = 120;
+    private double estimateProfitability(List<Candle> candles) {
+        double open = candles.get(0).getOpen();
+        double close = candles.get(candles.size() - 1).getClose();
+        double change = (close - open) / open;
 
-        log.info("📥 Загрузка истории свечей для chatId={} symbol={} limit={}", chatId, symbol, limit);
+        double sumRange = candles.stream()
+                .mapToDouble(c -> c.getHigh() - c.getLow())
+                .sum();
+        double avgRange = sumRange / candles.size();
 
-        return candleService.history(symbol, timeframe, limit);
+        if (avgRange == 0) return 0.0;
+        return change / avgRange;
+    }
+
+    private double computeDynamicTp(List<Candle> candles) {
+        // TP = средний рост свечей с положительным телом
+        List<Double> positives = candles.stream()
+                .map(c -> c.getClose() - c.getOpen())
+                .filter(v -> v > 0)
+                .map(v -> v / candles.get(0).getOpen())
+                .toList();
+        return positives.stream().mapToDouble(d -> d).average().orElse(0.03);
+    }
+
+    private double computeDynamicSl(List<Candle> candles) {
+        // SL = среднее падение свечей с отрицательным телом
+        List<Double> negatives = candles.stream()
+                .map(c -> c.getOpen() - c.getClose())
+                .filter(v -> v > 0)
+                .map(v -> v / candles.get(0).getOpen())
+                .toList();
+        return negatives.stream().mapToDouble(d -> d).average().orElse(0.01);
     }
 }
