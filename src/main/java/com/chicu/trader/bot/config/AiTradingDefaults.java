@@ -1,3 +1,4 @@
+// src/main/java/com/chicu/trader/bot/config/AiTradingDefaults.java
 package com.chicu.trader.bot.config;
 
 import lombok.Getter;
@@ -60,4 +61,7 @@ public class AiTradingDefaults {
 
     /** Количество свечей для кэширования по умолчанию */
     private final int defaultCachedCandlesLimit = 500;
+
+    /** Стратегия по умолчанию */
+    private final String defaultStrategy = "RSI_EMA";
 }

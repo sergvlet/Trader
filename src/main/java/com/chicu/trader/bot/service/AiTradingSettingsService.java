@@ -86,6 +86,7 @@ public class AiTradingSettingsService {
                             .mlModelPath("models/%d/ml_signal_filter.onnx")
                             .mlInputName("input")
                             .mlThreshold(0.5)
+                            .strategy(defaults.getDefaultStrategy())
                             .build();
                     log.info("Созданы настройки AI для chatId={}", chatId);
                     return settingsRepo.save(s);
@@ -305,4 +306,14 @@ public class AiTradingSettingsService {
     public void resetCachedCandlesLimitDefaults(Long chatId) {
         updateCachedCandlesLimit(chatId, defaults.getDefaultCachedCandlesLimit());
     }
+    public void updateStrategy(Long chatId, String strategyCode) {
+        AiTradingSettings s = getOrCreate(chatId);
+        s.setStrategy(strategyCode);
+        settingsRepo.save(s);
+    }
+
+    public void resetStrategyDefaults(Long chatId) {
+        updateStrategy(chatId, defaults.getDefaultStrategy());
+    }
+
 }

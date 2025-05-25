@@ -123,6 +123,13 @@ public class AiTradingSettings {
     @Column(name = "ml_trained_at")
     private Long mlTrainedAt;
 
+    @Column(name = "is_running", nullable = false)
+    private Boolean isRunning = false;
+
+    @Column(name = "strategy", length = 64)
+    private String strategy;
+
+
     /** Версия для оптимистичной блокировки */
     @Version
     private Long version;

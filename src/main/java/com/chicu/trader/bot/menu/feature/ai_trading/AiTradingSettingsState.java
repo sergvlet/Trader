@@ -81,6 +81,11 @@ public class AiTradingSettingsState implements MenuState {
                 .callbackData("ai_trading_settings_model_version")
                 .build();
 
+        InlineKeyboardButton strategyBtn = InlineKeyboardButton.builder()
+                .text("🧠 Стратегия")
+                .callbackData("ai_trading_settings_strategy")
+                .build();
+
         InlineKeyboardButton leverageBtn = InlineKeyboardButton.builder()
                 .text("📈 Плечо")
                 .callbackData("ai_trading_settings_leverage")
@@ -100,10 +105,12 @@ public class AiTradingSettingsState implements MenuState {
                 .text("📊 ML-метрики")
                 .callbackData("ai_trading_stats")
                 .build();
+
         InlineKeyboardButton testTrainBtn = InlineKeyboardButton.builder()
                 .text("🔁 Тест обучения")
-                .callbackData("ai_training_test_train") // ← новая кнопка
+                .callbackData("ai_training_test_train")
                 .build();
+
         InlineKeyboardButton backBtn = InlineKeyboardButton.builder()
                 .text("‹ Назад")
                 .callbackData("ai_trading")
@@ -119,7 +126,7 @@ public class AiTradingSettingsState implements MenuState {
                         List.of(maxPosBtn, cooldownBtn),
                         List.of(slippageBtn, orderTypeBtn),
                         List.of(notificationsBtn, modelVersionBtn),
-                        List.of(leverageBtn),
+                        List.of(strategyBtn, leverageBtn), // 🔧 стратегия + плечо
                         List.of(backtestBtn),
                         List.of(candlesLimitBtn, mlStatsBtn),
                         List.of(testTrainBtn),
@@ -164,6 +171,7 @@ public class AiTradingSettingsState implements MenuState {
             case "ai_trading_settings_order_type" -> "ai_trading_settings_order_type";
             case "ai_trading_settings_notifications_toggle" -> "ai_trading_settings_notifications_toggle";
             case "ai_trading_settings_model_version" -> "ai_trading_settings_model_version";
+            case "ai_trading_settings_strategy" -> "ai_trading_settings_strategy"; // ✅ стратегия
             case "ai_trading_settings_leverage" -> "ai_trading_settings_leverage";
             case "ai_trading_settings_backtesting" -> "ai_trading_settings_backtesting";
             case "ai_trading_settings_cached_candles_limit" -> "ai_trading_settings_cached_candles_limit";
