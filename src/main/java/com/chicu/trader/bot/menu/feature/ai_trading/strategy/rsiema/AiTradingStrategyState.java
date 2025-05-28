@@ -1,3 +1,4 @@
+// src/main/java/com/chicu/trader/bot/menu/feature/ai_trading/strategy/rsiema/AiTradingStrategyState.java
 package com.chicu.trader.bot.menu.feature.ai_trading.strategy.rsiema;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
@@ -28,16 +29,15 @@ public class AiTradingStrategyState implements MenuState {
     @Override
     public SendMessage render(Long chatId) {
         AiTradingSettings s = settingsService.getOrCreate(chatId);
-        String current = s.getStrategy();
+        StrategyType current = s.getStrategy();
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("*Выбор стратегии AI*\n\n");
-        sb.append("Текущая: ").append(StrategyType.findByCode(current).getLabel()).append("\n\n");
-        sb.append("Выберите одну из доступных стратегий:");
+        String sb = "*Выбор стратегии AI*\n\n" +
+                "Текущая: " + current.getLabel() + "\n\n" +
+                "Выберите одну из доступных стратегий:";
 
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         for (StrategyType type : StrategyType.values()) {
-            boolean selected = type.name().equals(current);
+            boolean selected = type == current;
             InlineKeyboardButton btn = InlineKeyboardButton.builder()
                     .text((selected ? "✅ " : "") + type.getLabel())
                     .callbackData("strategy_select:" + type.name())
@@ -53,15 +53,17 @@ public class AiTradingStrategyState implements MenuState {
 
         return SendMessage.builder()
                 .chatId(chatId.toString())
-                .text(sb.toString())
+                .text(sb)
                 .parseMode("Markdown")
-                .replyMarkup(InlineKeyboardMarkup.builder().keyboard(rows).build())
+                .replyMarkup(new InlineKeyboardMarkup(rows))
                 .build();
     }
 
     @Override
     public String handleInput(Update update) {
-        if (!update.hasCallbackQuery()) return name();
+        if (!update.hasCallbackQuery()) {
+            return name();
+        }
 
         String data = update.getCallbackQuery().getData();
         Long chatId = update.getCallbackQuery().getMessage().getChatId();
@@ -70,9 +72,10 @@ public class AiTradingStrategyState implements MenuState {
             String code = data.substring("strategy_select:".length());
             settingsService.updateStrategy(chatId, code);
 
-            // переход в подменю, если нужно
-            return switch (code) {
-                case "RSI_EMA" -> "rsi_ema_config";
+            // переходим в подменю, если есть для стратегии
+            return switch (StrategyType.findByCode(code)) {
+                case RSI_EMA -> "rsi_ema_config";
+                // case SCALPING -> "scalping_config"; // по аналогии
                 default -> name();
             };
         }

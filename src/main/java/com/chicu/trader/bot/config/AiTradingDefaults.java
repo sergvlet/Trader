@@ -64,4 +64,21 @@ public class AiTradingDefaults {
 
     /** Стратегия по умолчанию */
     private final String defaultStrategy = "RSI_EMA";
+
+    // === Добавленные параметры по умолчанию для RSI/EMA ===
+
+    /** Период RSI по умолчанию */
+    private final int defaultRsiPeriod = 14;
+
+    /** Порог покупки по RSI по умолчанию */
+    private final double defaultRsiBuyThreshold = 30.0;
+
+    /** Порог продажи по RSI по умолчанию */
+    private final double defaultRsiSellThreshold = 70.0;
+
+    /** Период короткой EMA по умолчанию */
+    private final int defaultEmaShort = 9;
+
+    /** Период длинной EMA по умолчанию */
+    private final int defaultEmaLong = 21;
 }

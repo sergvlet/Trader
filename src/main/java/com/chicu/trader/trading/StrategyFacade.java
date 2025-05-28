@@ -35,16 +35,13 @@ public class StrategyFacade {
     private final TradeLogRepository       tradeLogRepository;
 
     /**
-     * Основной метод, вызываемый на каждый новый тик свечи.
-     * Проверяет входные и выходные условия для каждой активной пары.
+     * Основной метод — вызывается на каждом новом закрытом баре.
      */
     public void applyStrategies(Long chatId, Candle currentCandle, List<ProfitablePair> pairs) {
-        // Список символов для контекста
+        // Составляем контекст стратегии
         List<String> symbols = pairs.stream()
-                .map(ProfitablePair::getSymbol)
-                .collect(Collectors.toList());
-
-        // Формируем контекст стратегии
+                                    .map(ProfitablePair::getSymbol)
+                                    .collect(Collectors.toList());
         StrategyContext ctx = new StrategyContext(
                 chatId,
                 currentCandle,
@@ -54,7 +51,7 @@ public class StrategyFacade {
                 mlFilter
         );
 
-        // Проверяем входные условия
+        // 1) Вход: если все фильтры прошли
         if (ctx.passesMlFilter()
                 && ctx.passesVolume()
                 && ctx.passesMultiTimeframe()
@@ -62,26 +59,32 @@ public class StrategyFacade {
             enterTrade(ctx);
         }
 
-        // Проверяем условия выхода
-        ctx.getExitLog().ifPresent(this::exitTrade);
+        // 2) Выход: закрываем все открытые сделки по паре, если сработал TP или SL
+        ctx.getExitLog().ifPresent(this::exitAllTrades);
     }
 
     /**
-     * Вход в сделку через OCO-ордер (TP+SL).
-     * Логируем и сохраняем TradeLog.
+     * Открытие позиции через OCO-ордер (TP+SL).
+     * Объём = riskThreshold% от свободного баланса.
      */
     private void enterTrade(StrategyContext ctx) {
         Long chatId = ctx.getChatId();
         String symbol = ctx.getSymbol();
+
         AiTradingSettings settings = settingsService.getOrCreate(chatId);
+        double riskPct = settings.getRiskThreshold() != null ? settings.getRiskThreshold() : 0.0;
 
-        // Расчёт объёма: % от свободного баланса
-        double balance = accountService.getFreeBalance(chatId, symbol.replaceAll("[A-Z]+$", ""));
-        double riskPct = settings.getRiskThreshold(); // e.g. 1.0 = 1%
-        double usd     = balance * riskPct / 100.0;
-        double qty     = usd / ctx.getPrice();
+        double price   = ctx.getPrice();
+        // Берём свободный баланс в базовой валюте (например, USD)
+        double balance = accountService.getFreeBalance(
+                chatId,
+                symbol.replaceAll("[A-Z]+$", "")
+        );
 
-        // Открываем OCO-ордер: стоп-лосс + тейк-профит
+        double usd  = balance * riskPct / 100.0;
+        double qty  = usd > 0 ? usd / price : 0.0;
+
+        // Ставим OCO: SL и TP из контекста
         orderService.placeOcoOrder(
                 chatId,
                 symbol,
@@ -90,12 +93,12 @@ public class StrategyFacade {
                 ctx.getTpPrice()
         );
 
-        // Сохраняем лог входа
+        // Сохраняем вход
         TradeLog entry = TradeLog.builder()
                 .userChatId(chatId)
                 .symbol(symbol)
                 .entryTime(Instant.ofEpochMilli(ctx.getCandle().getCloseTime()))
-                .entryPrice(ctx.getPrice())
+                .entryPrice(price)
                 .takeProfitPrice(ctx.getTpPrice())
                 .stopLossPrice(ctx.getSlPrice())
                 .quantity(qty)
@@ -108,24 +111,43 @@ public class StrategyFacade {
     }
 
     /**
-     * Выход из сделки — выставляем рыночный ордер, обновляем PnL и сохраняем.
+     * Закрытие всех незакрытых сделок по символу,
+     * если цена достигла TP или SL.
      */
-    private void exitTrade(TradeLog logEntry) {
-        Long chatId   = logEntry.getUserChatId();
-        String symbol = logEntry.getSymbol();
-        double qty    = logEntry.getQuantity();
-        double exitPr = logEntry.getExitPrice();
+    private void exitAllTrades(TradeLog proto) {
+        Long chatId   = proto.getUserChatId();
+        String symbol = proto.getSymbol();
+        double exitPr = proto.getExitPrice();
 
-        // Отправляем рыночный ордер на закрытие
-        orderService.placeMarketOrder(chatId, symbol, qty);
+        List<TradeLog> openTrades = tradeLogRepository
+                .findAllByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
 
-        // Обновляем лог выхода
-        logEntry.setExitTime(Instant.now());
-        logEntry.setClosed(true);
-        logEntry.setPnl((exitPr - logEntry.getEntryPrice()) * qty);
-        tradeLogRepository.save(logEntry);
+        for (TradeLog open : openTrades) {
+            double entryPr = open.getEntryPrice();
+            double qty     = open.getQuantity();
+            Double tp      = open.getTakeProfitPrice();
+            Double sl      = open.getStopLossPrice();
 
-        log.info("Exited trade: chatId={}, symbol={}, qty={}, exitPrice={}, PnL={}",
-                chatId, symbol, qty, exitPr, logEntry.getPnl());
+            boolean hitTp = tp != null && exitPr >= tp;
+            boolean hitSl = sl != null && exitPr <= sl;
+            if (!hitTp && !hitSl) {
+                log.debug("Skip close for chatId={}, symbol={} at {}: no TP({})/SL({}) hit",
+                        chatId, symbol, exitPr, tp, sl);
+                continue;
+            }
+
+            // Рыночный ордер на закрытие всей позиции
+            orderService.placeMarketOrder(chatId, symbol, qty);
+
+            open.setExitTime(Instant.now());
+            open.setClosed(true);
+            open.setExitPrice(exitPr);
+            open.setPnl((exitPr - entryPr) * qty);
+            tradeLogRepository.save(open);
+
+            log.info("Exited trade: chatId={}, symbol={}, qty={}, exitPrice={}, PnL={}, reason={}",
+                    chatId, symbol, qty, exitPr, open.getPnl(),
+                    hitTp ? "TP" : "SL");
+        }
     }
 }

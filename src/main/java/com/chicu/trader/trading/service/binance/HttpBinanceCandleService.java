@@ -6,6 +6,8 @@ import com.chicu.trader.trading.model.Candle;
 import com.chicu.trader.trading.service.CandleService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
@@ -27,11 +30,17 @@ public class HttpBinanceCandleService implements CandleService {
     private static final String TEST_REST = "https://testnet.binance.vision";
 
     private final AiTradingDefaults defaults;
-    private final HttpClient        client       = HttpClient.newHttpClient();
-    private final ObjectMapper      objectMapper = new ObjectMapper();
+    private final HttpClient client = HttpClient.newHttpClient();
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // Кэш: строковый ключ → список свечей. Живёт 1 секунду, максимум 1000 записей.
+    private final Cache<String, List<Candle>> historyCache = Caffeine.newBuilder()
+            .expireAfterWrite(1, TimeUnit.SECONDS)
+            .maximumSize(1000)
+            .build();
 
     /**
-     * Преобразует Duration в бинансовый интервал: 1m, 5m, 15m, 1h, 4h, 1d и т.д.
+     * Преобразует Duration в Binance-interval: 1m, 5m, 15m, 1h, 4h, 1d и т.д.
      */
     private String toBinanceInterval(Duration interval) {
         long secs = interval.getSeconds();
@@ -46,13 +55,29 @@ public class HttpBinanceCandleService implements CandleService {
     }
 
     /**
-     * Получить исторические свечи через HTTP REST API Binance.
+     * Получить исторические свечи через REST API Binance, с кэшированием.
      */
     @Override
     public List<Candle> history(String symbol, Duration interval, int limit) {
-        String base = defaults.getNetworkMode().equalsIgnoreCase("test") ? TEST_REST : PROD_REST;
+        String key = symbol.toUpperCase() + "|" + interval.toMillis() + "|" + limit;
+        List<Candle> cached = historyCache.getIfPresent(key);
+        if (cached != null) {
+            log.debug("Cache HIT for history({},{},{}).", symbol, interval, limit);
+            return cached;
+        }
+
+        List<Candle> fetched = fetchHistory(symbol, interval, limit);
+        historyCache.put(key, fetched);
+        return fetched;
+    }
+
+    /**
+     * Реальное получение данных из Binance.
+     */
+    private List<Candle> fetchHistory(String symbol, Duration interval, int limit) {
+        String base   = defaults.getNetworkMode().equalsIgnoreCase("test") ? TEST_REST : PROD_REST;
         String binInt = toBinanceInterval(interval);
-        String url = String.format("%s/api/v3/klines?symbol=%s&interval=%s&limit=%d",
+        String url    = String.format("%s/api/v3/klines?symbol=%s&interval=%s&limit=%d",
                 base, symbol.toUpperCase(), binInt, limit);
 
         try {
@@ -68,13 +93,13 @@ public class HttpBinanceCandleService implements CandleService {
             for (JsonNode node : array) {
                 result.add(new Candle(
                         symbol.toUpperCase(),
-                        node.get(0).asLong(),
-                        node.get(1).asDouble(),
-                        node.get(2).asDouble(),
-                        node.get(3).asDouble(),
-                        node.get(4).asDouble(),
-                        node.get(5).asDouble(),
-                        node.get(6).asLong()
+                        node.get(0).asLong(),   // openTime
+                        node.get(1).asDouble(), // open
+                        node.get(2).asDouble(), // high
+                        node.get(3).asDouble(), // low
+                        node.get(4).asDouble(), // close
+                        node.get(5).asDouble(), // volume
+                        node.get(6).asLong()    // closeTime
                 ));
             }
             return result;
@@ -85,13 +110,11 @@ public class HttpBinanceCandleService implements CandleService {
     }
 
     /**
-     * Обработчик входящей WS-свечи. Вызывается из WebSocket-сервиса.
+     * Обработчик входящей WS-свечи. Не трогаем.
      */
     @Override
     public void onWebSocketCandleUpdate(Candle candle) {
-        // Здесь можно сохранять в БД, пушить в очередь или сразу обрабатывать
-        log.debug("WS-свеча {}: closeTime={}, close={}",
-                candle.getSymbol(), candle.getCloseTime(), candle.getClose());
-        // TODO: при необходимости — передать дальше (например, в StrategyFacade)
+        log.debug("WS-candle {} close={} time={}",
+                candle.getSymbol(), candle.getClose(), candle.getCloseTime());
     }
 }

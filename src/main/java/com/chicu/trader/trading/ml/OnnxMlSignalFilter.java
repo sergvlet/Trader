@@ -1,6 +1,9 @@
 package com.chicu.trader.trading.ml;
 
-import ai.onnxruntime.*;
+import ai.onnxruntime.OnnxTensor;
+import ai.onnxruntime.OrtEnvironment;
+import ai.onnxruntime.OrtException;
+import ai.onnxruntime.OrtSession;
 import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.trading.model.MarketData;
@@ -15,11 +18,14 @@ import java.io.File;
 import java.util.Collections;
 import java.util.Map;
 
-@Slf4j
+/**
+ * Интерфейс инференса ML-модели через ONNX.
+ */
+@Component
 @Primary
 @Order(1)
-@Component
 @RequiredArgsConstructor
+@Slf4j
 public class OnnxMlSignalFilter implements MlSignalFilter {
 
     private final AiTradingSettingsService settingsService;
@@ -27,34 +33,41 @@ public class OnnxMlSignalFilter implements MlSignalFilter {
     @Override
     public MarketSignal predict(Long chatId, MarketData data) {
         AiTradingSettings s = settingsService.getOrCreate(chatId);
+        String path       = String.format(s.getMlModelPath(), chatId);
+        String inputName  = s.getMlInputName();
+        double threshold  = s.getMlThreshold();
 
-        String path = String.format(s.getMlModelPath(), chatId);
-        String inputName = s.getMlInputName();
-        double threshold = s.getMlThreshold();
-
+        // если модели нет на диске — быстро выходим
         if (!new File(path).exists()) {
-            log.warn("⚠️ Модель не найдена: {}", path);
-            return MarketSignal.BUY;
+            log.warn("⚠️ ML-модель не найдена: {}", path);
+            return MarketSignal.SKIP;
         }
 
-        try (OrtEnvironment env = OrtEnvironment.getEnvironment();
-             OrtSession session = env.createSession(path, new OrtSession.SessionOptions())) {
+        try {
+            // инициализация окружения и сессии
+            OrtEnvironment env = OrtEnvironment.getEnvironment();
+            try (OrtSession session = env.createSession(path, new OrtSession.SessionOptions())) {
 
-            float[][] inputData = data.toTensorInput(); // ← теперь работает
-            OnnxTensor inputTensor = OnnxTensor.createTensor(env, inputData);
+                // подготовка входного тензора
+                float[][] inputData = data.toTensorInput();
+                OnnxTensor inputTensor = OnnxTensor.createTensor(env, inputData);
+                Map<String, OnnxTensor> inputs = Collections.singletonMap(inputName, inputTensor);
 
-            Map<String, OnnxTensor> inputs = Collections.singletonMap(inputName, inputTensor);
-            OrtSession.Result output = session.run(inputs);
+                // запуск инференса
+                OrtSession.Result output = session.run(inputs);
+                float[][] result = (float[][]) output.get(0).getValue();
+                float score = result[0][0];
 
-            float[][] result = (float[][]) output.get(0).getValue();
-            float score = result[0][0];
-
-            log.info("🧠 [chatId={}] ML-инференс score = {}", chatId, score);
-
-            return score >= threshold ? MarketSignal.BUY : MarketSignal.SKIP;
-
+                log.info("🧠 [chatId={}] ML-инференс score = {}", chatId, score);
+                return score >= threshold ? MarketSignal.BUY : MarketSignal.SKIP;
+            }
+        } catch (OrtException | UnsatisfiedLinkError | NoClassDefFoundError e) {
+            // если что-то не так с ONNX Runtime, возвращаем безопасный пропуск сигнала
+            log.error("❌ ONNX Runtime error, пропускаем ML-фильтр: {}", e.toString());
+            return MarketSignal.SKIP;
         } catch (Exception e) {
-            log.error("Ошибка инференса: {}", e.getMessage(), e);
+            // любая другая ошибка — тоже пропускаем
+            log.error("❌ Ошибка инференса ML: {}", e.getMessage(), e);
             return MarketSignal.SKIP;
         }
     }

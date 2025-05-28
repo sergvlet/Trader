@@ -1,3 +1,4 @@
+// src/main/java/com/chicu/trader/strategy/rsiema/RsiEmaStrategySettings.java
 package com.chicu.trader.strategy.rsiema;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
@@ -20,6 +21,15 @@ public class RsiEmaStrategySettings {
     @JoinColumn(name = "chat_id")
     private AiTradingSettings aiSettings;
 
+    @Column(nullable = false)
+    private String symbol;
+
+    @Column(nullable = false)
+    private String timeframe;
+
+    @Column(nullable = false)
+    private Integer cachedCandlesLimit;
+
     @Column(name = "ema_short", nullable = false)
     private Integer emaShort;
 
@@ -35,7 +45,6 @@ public class RsiEmaStrategySettings {
     @Column(name = "rsi_sell_threshold", nullable = false)
     private Double rsiSellThreshold;
 
-    /** Версия для оптимистичной блокировки */
     @Version
     private Long version;
 }

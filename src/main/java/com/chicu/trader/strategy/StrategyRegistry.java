@@ -1,37 +1,51 @@
 package com.chicu.trader.strategy;
 
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 /**
- * Хранилище всех доступных стратегий.
+ * Собирает все бины TradeStrategy и выдаёт нужную по типу.
  */
 @Component
-@RequiredArgsConstructor
 public class StrategyRegistry {
 
-    private final List<TradeStrategy> allStrategies;
+    private final Map<StrategyType, TradeStrategy> registry;
 
-    public TradeStrategy findByCode(String code) {
-        return allStrategies.stream()
-                .filter(s -> s.code().equalsIgnoreCase(code))
-                .findFirst()
-                .orElseGet(() -> allStrategies.stream()
-                        .filter(s -> s.code().equalsIgnoreCase(StrategyType.DEFAULT.name()))
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalStateException("Default strategy not found")));
+    /**
+     * Spring инжектирует список всех TradeStrategy-бинов,
+     * мы раскладываем их по ключу StrategyType.
+     */
+    @Autowired
+    public StrategyRegistry(List<TradeStrategy> strategies) {
+        Map<StrategyType, TradeStrategy> map = new EnumMap<>(StrategyType.class);
+        for (TradeStrategy s : strategies) {
+            map.put(s.getType(), s);
+        }
+        this.registry = Collections.unmodifiableMap(map);
     }
 
-    public List<TradeStrategy> getAll() {
-        return allStrategies;
+    /**
+     * Возвращает TradeStrategy для данного StrategyType.
+     * Если не найдено — бросает исключение.
+     */
+    public TradeStrategy get(StrategyType type) {
+        TradeStrategy strat = registry.get(type);
+        if (strat == null) {
+            throw new IllegalArgumentException("Unknown strategy type: " + type);
+        }
+        return strat;
     }
 
-    public Map<String, String> getCodeToLabelMap() {
-        return allStrategies.stream()
-                .collect(Collectors.toMap(TradeStrategy::code, TradeStrategy::label));
+    /**
+     * Все поддерживаемые StrategyType (для меню и валидации).
+     */
+    public Set<StrategyType> supported() {
+        return registry.keySet();
     }
 }

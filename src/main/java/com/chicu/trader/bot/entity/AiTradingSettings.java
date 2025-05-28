@@ -1,5 +1,6 @@
 package com.chicu.trader.bot.entity;
 
+import com.chicu.trader.strategy.StrategyType;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -126,8 +127,10 @@ public class AiTradingSettings {
     @Column(name = "is_running", nullable = false)
     private Boolean isRunning = false;
 
-    @Column(name = "strategy", length = 64)
-    private String strategy;
+    /** Код выбранной стратегии (RSI_EMA, ML_MODEL и т.д.) */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "strategy", length = 64, nullable = false)
+    private StrategyType strategy = StrategyType.DEFAULT;
 
 
     /** Версия для оптимистичной блокировки */

@@ -1,3 +1,4 @@
+// src/main/java/com/chicu/trader/bot/service/AiTradingSettingsService.java
 package com.chicu.trader.bot.service;
 
 import com.chicu.trader.bot.config.AiTradingDefaults;
@@ -7,10 +8,12 @@ import com.chicu.trader.bot.repository.AiTradingSettingsRepository;
 import com.chicu.trader.bot.repository.UserRepository;
 import com.chicu.trader.model.ProfitablePair;
 import com.chicu.trader.repository.ProfitablePairRepository;
-import com.chicu.trader.trading.DailyOptimizer;
+import com.chicu.trader.trading.OptimizationResult;
+import com.chicu.trader.trading.TradingExecutor;
 import com.chicu.trader.trading.ml.MlModelTrainer;
 import com.chicu.trader.trading.ml.MlTrainingMetrics;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.chicu.trader.trading.optimizer.DailyOptimizer;
+import com.chicu.trader.strategy.StrategyType;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.transaction.Transactional;
@@ -31,30 +34,35 @@ import java.util.stream.Collectors;
 public class AiTradingSettingsService {
 
     private final AiTradingSettingsRepository settingsRepo;
-    private final UserRepository userRepo;
-    private final AiTradingDefaults defaults;
-    private final ProfitablePairRepository pairRepo;
-    private final MlModelTrainer modelTrainer;
-    private final AiTradingService aiTradingService;
-    private final DailyOptimizer optimizer;
+    private final UserRepository               userRepo;
+    private final AiTradingDefaults            defaults;
+    private final ProfitablePairRepository     pairRepo;
+    private final MlModelTrainer               modelTrainer;
+    private final AiTradingService             aiTradingService;
+    private final DailyOptimizer               optimizer;
+    private final TradingExecutor              tradingExecutor;
 
-    public AiTradingSettingsService(AiTradingSettingsRepository settingsRepo,
-                                    UserRepository userRepo,
-                                    AiTradingDefaults defaults,
-                                    ObjectMapper objectMapper,
-                                    ProfitablePairRepository pairRepo,
-                                    MlModelTrainer modelTrainer,
-                                    AiTradingService aiTradingService,
-                                    @Lazy DailyOptimizer optimizer) {
-        this.settingsRepo = settingsRepo;
-        this.userRepo = userRepo;
-        this.defaults = defaults;
-        this.pairRepo = pairRepo;
-        this.modelTrainer = modelTrainer;
+    public AiTradingSettingsService(
+            AiTradingSettingsRepository settingsRepo,
+            UserRepository userRepo,
+            AiTradingDefaults defaults,
+            ProfitablePairRepository pairRepo,
+            MlModelTrainer modelTrainer,
+            @Lazy AiTradingService aiTradingService,
+            @Lazy DailyOptimizer optimizer,
+            @Lazy TradingExecutor tradingExecutor
+    ) {
+        this.settingsRepo     = settingsRepo;
+        this.userRepo         = userRepo;
+        this.defaults         = defaults;
+        this.pairRepo         = pairRepo;
+        this.modelTrainer     = modelTrainer;
         this.aiTradingService = aiTradingService;
-        this.optimizer = optimizer;
+        this.optimizer        = optimizer;
+        this.tradingExecutor  = tradingExecutor;
     }
 
+    /** === ваш существующий getOrCreate без изменений === */
     @Transactional
     public AiTradingSettings getOrCreate(Long chatId) {
         return settingsRepo.findById(chatId)
@@ -86,12 +94,40 @@ public class AiTradingSettingsService {
                             .mlModelPath("models/%d/ml_signal_filter.onnx")
                             .mlInputName("input")
                             .mlThreshold(0.5)
-                            .strategy(defaults.getDefaultStrategy())
+                            .strategy(StrategyType.valueOf(defaults.getDefaultStrategy()))
                             .build();
                     log.info("Созданы настройки AI для chatId={}", chatId);
                     return settingsRepo.save(s);
                 });
     }
+
+    /** === ваш существующий startAiTrading без изменений === */
+    @Transactional
+    public void startAiTrading(Long chatId) {
+        AiTradingSettings s = getOrCreate(chatId);
+        OptimizationResult opt = optimizer.optimizeAllForChat(chatId);
+        List<String> symbols = opt.getSymbols();
+        double tp = opt.getTp();
+        double sl = opt.getSl();
+
+        // обновляем ProfitablePair
+        pairRepo.deleteAllByUserChatId(chatId);
+        List<ProfitablePair> pairs = symbols.stream()
+                .map(sym -> ProfitablePair.builder()
+                        .userChatId(chatId)
+                        .symbol(sym)
+                        .takeProfitPct(tp)
+                        .stopLossPct(sl)
+                        .active(true)
+                        .build())
+                .collect(Collectors.toList());
+        pairRepo.saveAll(pairs);
+
+        // запускаем исполнитель
+        tradingExecutor.startExecutor(chatId, symbols);
+    }
+
+    // === ниже — все ваши update… и reset…Defaults методы ===
 
     public void updateTpSl(Long chatId, String tpSlJson) {
         AiTradingSettings s = getOrCreate(chatId);
@@ -246,7 +282,7 @@ public class AiTradingSettingsService {
 
         String path = String.format("models/%d/ml_signal_filter.onnx", chatId);
         MlTrainingMetrics metrics = modelTrainer.trainAndExport(chatId, path);
-        var res = optimizer.optimizeAllForChat(chatId);
+        OptimizationResult res = optimizer.optimizeAllForChat(chatId);
 
         AiTradingSettings s = getOrCreate(chatId);
         s.setTpSlConfig(res.toJson());
@@ -262,6 +298,7 @@ public class AiTradingSettingsService {
         s.setOrderType(res.getOrderType());
         s.setNotificationsEnabled(res.getNotificationsEnabled());
         s.setModelVersion(res.getModelVersion());
+        // ML path/input/threshold храним только в defaults
 
         s.setMlAccuracy(metrics.getAccuracy());
         s.setMlPrecision(metrics.getPrecision());
@@ -272,19 +309,22 @@ public class AiTradingSettingsService {
         settingsRepo.save(s);
 
         aiTradingService.enableTrading(chatId);
-        log.info("✅ AI-торговля включена для chatId={}, метрики: acc=%.4f, pr=%.4f, rec=%.4f, auc=%.4f",
+        log.info("✅ AI-торговля включена для chatId={}, метрики: acc={}, pr={}, rec={}, auc={}",
                 chatId,
                 metrics.getAccuracy(),
                 metrics.getPrecision(),
                 metrics.getRecall(),
-                metrics.getAuc());
+                metrics.getAuc()
+        );
 
         return CompletableFuture.completedFuture(null);
     }
 
     @Scheduled(cron = "0 0 3 * * *", zone = "Europe/Warsaw")
     public void dailyBacktestAll() {
-        findAllChatIds().forEach(this::trainAndApplyAsync);
+        settingsRepo.findAll().stream()
+                .map(AiTradingSettings::getChatId)
+                .forEach(this::trainAndApplyAsync);
     }
 
     public List<Long> findAllChatIds() {
@@ -306,14 +346,14 @@ public class AiTradingSettingsService {
     public void resetCachedCandlesLimitDefaults(Long chatId) {
         updateCachedCandlesLimit(chatId, defaults.getDefaultCachedCandlesLimit());
     }
+
     public void updateStrategy(Long chatId, String strategyCode) {
         AiTradingSettings s = getOrCreate(chatId);
-        s.setStrategy(strategyCode);
+        s.setStrategy(StrategyType.valueOf(strategyCode));
         settingsRepo.save(s);
     }
 
     public void resetStrategyDefaults(Long chatId) {
         updateStrategy(chatId, defaults.getDefaultStrategy());
     }
-
 }

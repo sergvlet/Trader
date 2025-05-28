@@ -1,7 +1,8 @@
-package com.chicu.trader.trading;
+package com.chicu.trader.trading.optimizer;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
+import com.chicu.trader.trading.OptimizationResult;
 import com.chicu.trader.trading.model.Candle;
 import com.chicu.trader.trading.service.CandleService;
 import lombok.RequiredArgsConstructor;

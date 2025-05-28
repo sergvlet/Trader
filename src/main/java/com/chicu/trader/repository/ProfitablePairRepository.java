@@ -9,7 +9,6 @@ import java.util.List;
 
 public interface ProfitablePairRepository extends JpaRepository<ProfitablePair, Long> {
 
-
     /**
      * Все пары (включённые и выключенные) для данного пользователя.
      */
@@ -19,6 +18,11 @@ public interface ProfitablePairRepository extends JpaRepository<ProfitablePair, 
      * Только активные пары для данного пользователя.
      */
     List<ProfitablePair> findByUserChatIdAndActiveTrue(Long userChatId);
+
+    /**
+     * Удалить все пары пользователя (используется при перезаписи топ-N пар).
+     */
+    void deleteAllByUserChatId(Long userChatId);
 
     /**
      * Список всех chatId, для которых есть хотя бы одна пара.
