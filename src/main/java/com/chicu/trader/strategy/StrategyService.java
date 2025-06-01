@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/strategy/StrategyService.java
 package com.chicu.trader.strategy;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
@@ -8,6 +7,10 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+/**
+ * Сервис, который по списку свечей и настройкам пользователя
+ * вычисляет глобальный SignalType (для торговли).
+ */
 @Service
 @RequiredArgsConstructor
 public class StrategyService {
@@ -15,24 +18,23 @@ public class StrategyService {
     private final StrategyRegistry registry;
 
     /**
-     * Вычисляет торговый сигнал для пользователя.
-     *
-     * @param chatId   идентификатор чата/пользователя
-     * @param candles  список исторических свечей (последний бар — текущий)
-     * @param settings настройки AI-торговли пользователя
-     * @return сигнал BUY, SELL или HOLD
+     * Вычисляем глобальный тип сигнала (BUY / SELL / HOLD).
+     * 1) По StrategyType вытаскиваем нужный бин
+     * 2) Смотрим сигналы конкретной стратегии (локальные – TradeStrategy.SignalType)
+     * 3) Маппим локальный сигнал в глобальный SignalType
      */
-    public SignalType evaluate(Long chatId, List<Candle> candles, AiTradingSettings settings) {
-        // 1) Получаем enum-тип стратегии
-        StrategyType strategyType = settings.getStrategy();
+    public SignalType calculateGlobalSignal(
+            StrategyType type,
+            List<Candle> candles,
+            AiTradingSettings settings
+    ) {
+        // 1) Получили бин стратегии
+        TradeStrategy strategy = registry.getByType(type);
 
-        // 2) Из registry достаём бин нужной стратегии
-        TradeStrategy strategy = registry.get(strategyType);
-
-        // 3) Вычисляем локальный сигнал стратегии
+        // 2) Вычисляем локальный сигнал
         TradeStrategy.SignalType localSignal = strategy.evaluate(candles, settings);
 
-        // 4) Маппим в глобальный SignalType
+        // 3) Маппим локальный в глобальный
         switch (localSignal) {
             case BUY:
                 return SignalType.BUY;

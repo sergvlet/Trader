@@ -57,42 +57,7 @@ public class RsiEmaStrategySettingsService {
         repo.saveAndFlush(cfg);
     }
 
-    // ----- Методы для обновления отдельных настроек -----
 
-    @Transactional
-    public void updateEmaShort(Long chatId, int emaShort) {
-        RsiEmaStrategySettings cfg = getOrCreate(chatId);
-        cfg.setEmaShort(emaShort);
-        repo.saveAndFlush(cfg);
-    }
-
-    @Transactional
-    public void updateEmaLong(Long chatId, int emaLong) {
-        RsiEmaStrategySettings cfg = getOrCreate(chatId);
-        cfg.setEmaLong(emaLong);
-        repo.saveAndFlush(cfg);
-    }
-
-    @Transactional
-    public void updateRsiPeriod(Long chatId, int rsiPeriod) {
-        RsiEmaStrategySettings cfg = getOrCreate(chatId);
-        cfg.setRsiPeriod(rsiPeriod);
-        repo.saveAndFlush(cfg);
-    }
-
-    @Transactional
-    public void updateRsiBuyThreshold(Long chatId, double threshold) {
-        RsiEmaStrategySettings cfg = getOrCreate(chatId);
-        cfg.setRsiBuyThreshold(threshold);
-        repo.saveAndFlush(cfg);
-    }
-
-    @Transactional
-    public void updateRsiSellThreshold(Long chatId, double threshold) {
-        RsiEmaStrategySettings cfg = getOrCreate(chatId);
-        cfg.setRsiSellThreshold(threshold);
-        repo.saveAndFlush(cfg);
-    }
 
     // ----- Методы для сброса к дефолтам -----
 

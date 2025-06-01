@@ -29,19 +29,26 @@ public class HttpBinanceOrderService implements OrderService {
     private final HttpClient          httpClient = HttpClient.newHttpClient();
 
     private String base(Long chatId) {
-        return userSettingsService.isTestnet(chatId) ? TEST_REST : PROD_REST;
+        boolean isTest = userSettingsService.isTestnet(chatId);
+        log.debug("HttpBinanceOrderService: base URL for chatId={} is {}", chatId, isTest ? TEST_REST : PROD_REST);
+        return isTest ? TEST_REST : PROD_REST;
     }
 
     private String apiKey(Long chatId) {
-        return userSettingsService.getApiCredentials(chatId).getApiKey();
+        String key = userSettingsService.getApiCredentials(chatId).getApiKey();
+        log.debug("HttpBinanceOrderService: retrieved API key for chatId={}", chatId);
+        return key;
     }
 
     private String secretKey(Long chatId) {
+        // Не логируем секретный ключ в чистом виде
+        log.debug("HttpBinanceOrderService: retrieved secret key for chatId={}", chatId);
         return userSettingsService.getApiCredentials(chatId).getSecretKey();
     }
 
     @Override
     public void placeMarketOrder(Long chatId, String symbol, double quantity) {
+        log.info("placeMarketOrder: инициируем рыночный ордер для chatId={}, symbol={}, quantity={}", chatId, symbol, quantity);
         String path = "/api/v3/order";
         long ts = Instant.now().toEpochMilli();
 
@@ -52,11 +59,14 @@ public class HttpBinanceOrderService implements OrderService {
         params.put("quantity",  String.valueOf(quantity));
         params.put("timestamp", String.valueOf(ts));
 
+        log.debug("placeMarketOrder: параметры запроса для chatId={} : {}", chatId, params);
         sendSignedRequest(chatId, path, params);
     }
 
     @Override
     public void placeOcoOrder(Long chatId, String symbol, double quantity, double stopPrice, double limitPrice) {
+        log.info("placeOcoOrder: инициируем OCO ордер для chatId={}, symbol={}, quantity={}, stopPrice={}, limitPrice={}",
+                chatId, symbol, quantity, stopPrice, limitPrice);
         String path = "/api/v3/order/oco";
         long ts = Instant.now().toEpochMilli();
 
@@ -68,6 +78,7 @@ public class HttpBinanceOrderService implements OrderService {
         params.put("price",     String.valueOf(limitPrice));
         params.put("timestamp", String.valueOf(ts));
 
+        log.debug("placeOcoOrder: параметры запроса для chatId={} : {}", chatId, params);
         sendSignedRequest(chatId, path, params);
     }
 
@@ -82,17 +93,20 @@ public class HttpBinanceOrderService implements OrderService {
             String signature = HmacSHA256Signer.sign(queryString, secretKey(chatId));
             String fullQS = queryString + "&signature=" + signature;
 
+            String url = base(chatId) + path + "?" + fullQS;
+            log.debug("sendSignedRequest: полная ссылка для chatId={} : {}", chatId, url);
+
             HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(base(chatId) + path + "?" + fullQS))
+                    .uri(URI.create(url))
                     .header("X-MBX-APIKEY", apiKey(chatId))
                     .POST(HttpRequest.BodyPublishers.noBody())
                     .build();
 
+            log.debug("sendSignedRequest: отправляем HTTP POST для chatId={} по пути {}", chatId, path);
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            log.info("Binance order [{} {}] → {} {}",
-                    chatId, path, resp.statusCode(), resp.body());
+            log.info("Binance order [{} {}] → {} {}", chatId, path, resp.statusCode(), resp.body());
         } catch (Exception e) {
-            log.error("Error sending signed request to Binance", e);
+            log.error("Error sending signed request to Binance for chatId={}", chatId, e);
             throw new RuntimeException(e);
         }
     }

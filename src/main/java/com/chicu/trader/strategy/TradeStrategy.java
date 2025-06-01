@@ -1,27 +1,39 @@
-// src/main/java/com/chicu/trader/strategy/TradeStrategy.java
 package com.chicu.trader.strategy;
 
-import com.chicu.trader.bot.entity.AiTradingSettings;
-import com.chicu.trader.trading.model.Candle;
+import com.chicu.trader.bot.entity.AiTradingSettings; // сущность с пользовательскими настройками
+import com.chicu.trader.trading.model.Candle;          // простой POJO для «свечи»
 
 import java.util.List;
 
 /**
- * Интерфейс для любой торговой стратегии.
+ * Общий интерфейс любой торговой стратегии.
+ * <p>
+ * - evaluate(...) принимаeт список свечей и пользовательские настройки AI-торговли (AiTradingSettings).
+ * - Возвращает один из трёх сигналов: BUY, SELL или HOLD.
+ * <p>
+ * Например: если объём последней свечи резко вырос — вернуть BUY, иначе HOLD.
+ * Или: ML-модель на основе массива цен выдаёт BUY/SELL/HOLD.
  */
 public interface TradeStrategy {
 
-    /** Тип стратегии — соответствует StrategyType. */
-    StrategyType getType();
+    /** Описаны возможные «торговые сигналы» */
+    enum SignalType {
+        BUY,
+        SELL,
+        HOLD
+    }
 
     /**
-     * Основной метод — по списку свечей и настройкам
-     * возвращает BUY, SELL или HOLD.
-     *
-     * @param candles  последние N свечей (символ внутри Candle)
-     * @param settings настройки пользователя (TP/SL, риск, другие параметры)
+     * Оценивает текущую ситуацию и возвращает сигнал.
+     * 
+     * @param candles  Список последних N свечей (самая свежая — последний элемент списка).
+     * @param settings Объект с настройками пользователя (в том числе стратегия, TP/SL, параметры ML и т. д.).
+     * @return BUY/SELL/HOLD
      */
     SignalType evaluate(List<Candle> candles, AiTradingSettings settings);
 
-    enum SignalType { BUY, SELL, HOLD }
+    /**
+     * Возвращает тип этой стратегии (для того, чтобы фасад мог выбрать нужную реализацию).
+     */
+    StrategyType getType();
 }

@@ -1,51 +1,40 @@
 package com.chicu.trader.strategy;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * Собирает все бины TradeStrategy и выдаёт нужную по типу.
+ * Хранит все TradeStrategy-биты, доступные в контексте Spring.
+ * Маппит тип StrategyType → соответствующий бин.
  */
 @Component
+@RequiredArgsConstructor
 public class StrategyRegistry {
 
-    private final Map<StrategyType, TradeStrategy> registry;
+    private final Map<String, TradeStrategy> strategiesByName;
 
     /**
-     * Spring инжектирует список всех TradeStrategy-бинов,
-     * мы раскладываем их по ключу StrategyType.
+     * Spring автоматически соберёт в Map все бины, реализующие TradeStrategy,
+     * где ключ в Map – это beanName (по умолчанию «rsiEmaStrategy» или «mlModelStrategy» и т. д.).
+     * Мы просто преобразуем из beanName → TradeStrategy в StrategyType → TradeStrategy.
      */
-    @Autowired
-    public StrategyRegistry(List<TradeStrategy> strategies) {
-        Map<StrategyType, TradeStrategy> map = new EnumMap<>(StrategyType.class);
-        for (TradeStrategy s : strategies) {
-            map.put(s.getType(), s);
-        }
-        this.registry = Collections.unmodifiableMap(map);
+    public TradeStrategy getByType(StrategyType type) {
+        // Перебираем все TradeStrategy-бены, ищем тот, чей getType() совпадает с type
+        return strategiesByName.values().stream()
+                .filter(s -> s.getType() == type)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Strategy not found for type: " + type));
     }
 
     /**
-     * Возвращает TradeStrategy для данного StrategyType.
-     * Если не найдено — бросает исключение.
+     * Можно вернуть сразу Map<StrategyType, TradeStrategy>, если нужно.
      */
-    public TradeStrategy get(StrategyType type) {
-        TradeStrategy strat = registry.get(type);
-        if (strat == null) {
-            throw new IllegalArgumentException("Unknown strategy type: " + type);
-        }
-        return strat;
-    }
-
-    /**
-     * Все поддерживаемые StrategyType (для меню и валидации).
-     */
-    public Set<StrategyType> supported() {
-        return registry.keySet();
+    public Map<StrategyType, TradeStrategy> getMap() {
+        return strategiesByName.values().stream()
+                .collect(Collectors.toMap(TradeStrategy::getType, s -> s));
     }
 }

@@ -75,7 +75,7 @@ public class AiTradingStrategyState implements MenuState {
             // переходим в подменю, если есть для стратегии
             return switch (StrategyType.findByCode(code)) {
                 case RSI_EMA -> "rsi_ema_config";
-                // case SCALPING -> "scalping_config"; // по аналогии
+                case SCALPING -> "scalping_config";
                 default -> name();
             };
         }

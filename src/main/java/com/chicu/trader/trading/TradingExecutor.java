@@ -30,7 +30,7 @@ public class TradingExecutor {
         }
 
         try {
-            strategyFacade.applyStrategies(chatId, candle, pairs);
+            strategyFacade.applyStrategies(chatId, pairs);
         } catch (Exception ex) {
             log.error("Ошибка исполнения стратегии для chatId={}, symbol={}", chatId, candle.getSymbol(), ex);
         }

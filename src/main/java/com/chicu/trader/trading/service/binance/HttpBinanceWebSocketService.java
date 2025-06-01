@@ -32,24 +32,40 @@ public class HttpBinanceWebSocketService {
     private final HttpClient client = HttpClient.newHttpClient();
     private final Map<Long, Map<String, WebSocket>> userSockets = new ConcurrentHashMap<>();
 
+    /**
+     * Запускает подписки на свечи для заданных символов, используя стандартный обработчик onWebSocketCandleUpdate.
+     */
     public synchronized void startSubscriptions(Long chatId, java.util.List<String> symbols) {
         startSubscriptions(chatId, symbols, candleService::onWebSocketCandleUpdate);
     }
 
+    /**
+     * Запускает подписки на свечи для заданных символов с кастомным Consumer<Candle>.
+     */
     public synchronized void startSubscriptions(
             Long chatId,
             java.util.List<String> symbols,
             Consumer<Candle> onCandle
     ) {
+        // Сначала прекращаем старые подписки
         stopSubscriptions(chatId);
 
+        // Определяем базовый URL (прод/тест) и таймфрейм из настроек пользователя
         String mode = settingsService.getOrCreate(chatId).getNetworkMode();
         String base = "test".equalsIgnoreCase(mode) ? TEST_WS : PROD_WS;
+        String timeframe = settingsService.getOrCreate(chatId).getTimeframe();
+        if (timeframe == null || timeframe.isEmpty()) {
+            timeframe = "1m";
+            log.warn("Для chatId={} не задан timeframe, используем дефолт '{}'", chatId, timeframe);
+        }
+
+        log.info("Запуск WS-подписок для chatId={} с таймфреймом='{}'", chatId, timeframe);
 
         for (String sym : symbols) {
-            String stream = sym.toLowerCase() + "@kline_1m";
+            // Формируем имя потока с учётом текущего таймфрейма
+            String stream = sym.toLowerCase() + "@kline_" + timeframe;
             String uri = base + "/" + stream;
-            log.info("WS connecting to {}", uri);
+            log.info("Подключаюсь к WS: {}", uri);
 
             client.newWebSocketBuilder()
                     .connectTimeout(Duration.ofSeconds(5))
@@ -86,14 +102,14 @@ public class HttpBinanceWebSocketService {
                                     onCandle.accept(c);
                                 }
                             } catch (Exception ex) {
-                                log.error("WS parse error for {}: {}", sym, ex.getMessage());
+                                log.error("Ошибка разбора WS-сообщения для символа '{}': {}", sym, ex.getMessage());
                             }
                             return WebSocket.Listener.super.onText(webSocket, data, last);
                         }
 
                         @Override
                         public void onOpen(WebSocket webSocket) {
-                            log.info("WS opened {}", uri);
+                            log.info("WS открыт: {}", uri);
                             userSockets
                                     .computeIfAbsent(chatId, id -> new ConcurrentHashMap<>())
                                     .put(sym, webSocket);
@@ -107,26 +123,32 @@ public class HttpBinanceWebSocketService {
 
                         @Override
                         public void onError(WebSocket webSocket, Throwable error) {
-                            log.error("WS error on {}: {}", uri, error.getMessage());
+                            log.error("Ошибка WS для '{}': {}", uri, error.getMessage());
                             WebSocket.Listener.super.onError(webSocket, error);
                         }
                     });
         }
     }
 
+    /**
+     * Останавливает подписки WS для всех пользователей.
+     */
     public synchronized void stopSubscriptions() {
         userSockets.forEach((chatId, map) -> stopSubscriptions(chatId));
     }
 
+    /**
+     * Останавливает подписки WS для конкретного пользователя (chatId).
+     */
     public synchronized void stopSubscriptions(Long chatId) {
         Map<String, WebSocket> sockets = userSockets.remove(chatId);
         if (sockets != null) {
             sockets.forEach((sym, ws) -> {
-                log.info("WS closing for chatId={} symbol={}", chatId, sym);
+                log.info("Закрываю WS для chatId={} символ={}", chatId, sym);
                 try {
                     ws.sendClose(WebSocket.NORMAL_CLOSURE, "stop").join();
                 } catch (Exception e) {
-                    log.warn("Error closing WS for {}: {}", sym, e.getMessage());
+                    log.warn("Ошибка при закрытии WS для '{}': {}", sym, e.getMessage());
                 }
             });
         }

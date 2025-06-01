@@ -16,6 +16,7 @@ public enum StrategyType {
     SCALPING("Скальпинг"),
     ML_MODEL("ML-модель"),
     SWING("Свинг"),
+    VOLUME_BASED("Объёмная"),
     DEFAULT("По умолчанию");
 
     private final String label;
