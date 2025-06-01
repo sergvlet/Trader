@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/bot/entity/UserSettings.java
 package com.chicu.trader.bot.entity;
 
 import jakarta.persistence.*;
@@ -42,6 +41,7 @@ public class UserSettings {
     @Column(name = "real_secret_key")
     private String realSecretKey;
 
+    @Builder.Default
     @Column(
             name = "ai_trading_enabled",
             nullable = false,
@@ -49,18 +49,22 @@ public class UserSettings {
     )
     private Boolean aiTradingEnabled = false;
 
-
     private Double maxEquity;
     private Long nextAllowedTradeTime;
 
     public boolean hasTestCredentials() {
         return testApiKey != null && testSecretKey != null;
     }
+
     public boolean hasRealCredentials() {
         return realApiKey != null && realSecretKey != null;
     }
+
     public boolean hasCredentialsFor(String mode) {
-        if ("REAL".equalsIgnoreCase(mode)) return hasRealCredentials();
-        else return hasTestCredentials();
+        if ("REAL".equalsIgnoreCase(mode)) {
+            return hasRealCredentials();
+        } else {
+            return hasTestCredentials();
+        }
     }
 }

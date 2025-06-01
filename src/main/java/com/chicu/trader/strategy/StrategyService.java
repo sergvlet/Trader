@@ -2,7 +2,6 @@
 package com.chicu.trader.strategy;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
-import com.chicu.trader.model.SignalType;
 import com.chicu.trader.trading.model.Candle;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

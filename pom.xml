@@ -61,21 +61,44 @@
             <scope>runtime</scope>
         </dependency>
         <!-- ONNX Runtime для Java -->
-            <dependency>
+        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
+
         <dependency>
             <groupId>com.microsoft.onnxruntime</groupId>
             <artifactId>onnxruntime</artifactId>
             <version>1.21.0</version>
         </dependency>
+        <dependency>
+            <groupId>ai.djl.onnxruntime</groupId>
+            <artifactId>onnxruntime-engine</artifactId>
+            <version>0.33.0</version>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.microsoft.onnxruntime</groupId>
+                    <artifactId>onnxruntime</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime_gpu</artifactId>
+            <version>1.21.0</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!--        <dependency>-->
+        <!--            <groupId>com.microsoft.onnxruntime</groupId>-->
+        <!--            <artifactId>onnxruntime</artifactId>-->
+        <!--            <version>1.21.0</version>-->
+        <!--            <classifier>linux-x64</classifier>-->
+        <!--        </dependency>-->
+
+
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

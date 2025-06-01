@@ -1,6 +1,6 @@
 package com.chicu.trader.trading.model;
 
-import com.chicu.trader.model.SignalType;
+import com.chicu.trader.strategy.SignalType;
 import lombok.Builder;
 
 /**

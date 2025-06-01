@@ -1,10 +1,10 @@
 package com.chicu.trader.trading.model;
 
 /**
- * Результат инференса: купить, продать или пропустить.
+ * Возможные результаты ML-инференса.
  */
 public enum MarketSignal {
     BUY,
     SELL,
-    SKIP // ← добавлено
+    HOLD
 }

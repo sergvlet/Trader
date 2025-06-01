@@ -38,10 +38,12 @@ public class StrategyFacade {
      * Основной метод — вызывается на каждом новом закрытом баре.
      */
     public void applyStrategies(Long chatId, Candle currentCandle, List<ProfitablePair> pairs) {
-        // Составляем контекст стратегии
+        // 1) Собираем список символов
         List<String> symbols = pairs.stream()
-                                    .map(ProfitablePair::getSymbol)
-                                    .collect(Collectors.toList());
+                .map(ProfitablePair::getSymbol)
+                .collect(Collectors.toList());
+
+        // 2) Строим контекст стратегии
         StrategyContext ctx = new StrategyContext(
                 chatId,
                 currentCandle,
@@ -51,7 +53,7 @@ public class StrategyFacade {
                 mlFilter
         );
 
-        // 1) Вход: если все фильтры прошли
+        // 3) Вход: если все фильтры прошли
         if (ctx.passesMlFilter()
                 && ctx.passesVolume()
                 && ctx.passesMultiTimeframe()
@@ -59,7 +61,7 @@ public class StrategyFacade {
             enterTrade(ctx);
         }
 
-        // 2) Выход: закрываем все открытые сделки по паре, если сработал TP или SL
+        // 4) Выход: закрываем все открытые сделки по паре, если сработал TP или SL
         ctx.getExitLog().ifPresent(this::exitAllTrades);
     }
 
@@ -93,7 +95,7 @@ public class StrategyFacade {
                 ctx.getTpPrice()
         );
 
-        // Сохраняем вход
+        // Сохраняем вход в TradeLog
         TradeLog entry = TradeLog.builder()
                 .userChatId(chatId)
                 .symbol(symbol)
@@ -113,12 +115,15 @@ public class StrategyFacade {
     /**
      * Закрытие всех незакрытых сделок по символу,
      * если цена достигла TP или SL.
+     *
+     * Теперь принимает StrategyContext.ExitLog вместо TradeLog.
      */
-    private void exitAllTrades(TradeLog proto) {
-        Long chatId   = proto.getUserChatId();
-        String symbol = proto.getSymbol();
-        double exitPr = proto.getExitPrice();
+    private void exitAllTrades(StrategyContext.ExitLog exitInfo) {
+        Long chatId   = exitInfo.getChatId();
+        String symbol = exitInfo.getSymbol();
+        double exitPr = exitInfo.getExitPrice();
 
+        // Находим все открытые сделки (isClosed = false) по данному символу
         List<TradeLog> openTrades = tradeLogRepository
                 .findAllByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
 

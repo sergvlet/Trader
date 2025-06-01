@@ -21,13 +21,15 @@ public class RsiEmaStrategySettings {
     @JoinColumn(name = "chat_id")
     private AiTradingSettings aiSettings;
 
-    @Column(nullable = false)
+    // Здесь был @Column(nullable = false), меняем на nullable = true
+    @Column(nullable = true)
     private String symbol;
 
-    @Column(nullable = false)
+    // Также делаем nullable = true
+    @Column(nullable = true)
     private String timeframe;
 
-    @Column(nullable = false)
+    @Column(name = "cached_candles_limit", nullable = true)
     private Integer cachedCandlesLimit;
 
     @Column(name = "ema_short", nullable = false)
@@ -39,12 +41,14 @@ public class RsiEmaStrategySettings {
     @Column(name = "rsi_period", nullable = false)
     private Integer rsiPeriod;
 
-    @Column(name = "rsi_buy_threshold", nullable = false)
+    // Новые thresholds — тоже nullable = true (иначе Hibernate снова попытается создать NOT NULL)
+    @Column(name = "rsi_buy_threshold", nullable = true)
     private Double rsiBuyThreshold;
 
-    @Column(name = "rsi_sell_threshold", nullable = false)
+    @Column(name = "rsi_sell_threshold", nullable = true)
     private Double rsiSellThreshold;
 
     @Version
     private Long version;
 }
+

@@ -2,7 +2,7 @@
 package com.chicu.trader.trading.service;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
-import com.chicu.trader.model.SignalType;
+import com.chicu.trader.strategy.SignalType;
 import com.chicu.trader.strategy.StrategyRegistry;
 import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.strategy.StrategyType;

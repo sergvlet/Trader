@@ -1,4 +1,4 @@
-package com.chicu.trader.model;
+package com.chicu.trader.strategy;
 
 /**
  * Тип торгового сигнала.

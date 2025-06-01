@@ -1,27 +1,15 @@
+// src/main/java/com/chicu/trader/trading/model/MarketData.java
 package com.chicu.trader.trading.model;
 
+import lombok.Getter;
+
 /**
- * Контейнер для входных фич ML-модели.
+ * Обёртка над сырыми фичами для ML.
  */
+@Getter
 public class MarketData {
-
     private final float[] features;
-
     public MarketData(float[] features) {
         this.features = features;
-    }
-
-    /**
-     * Возвращает массив фичей для передачи в ONNX.
-     */
-    public float[] toFeatureArray() {
-        return features;
-    }
-
-    /**
-     * Возвращает двумерный массив для ONNX (batch = 1).
-     */
-    public float[][] toTensorInput() {
-        return new float[][] { features };
     }
 }

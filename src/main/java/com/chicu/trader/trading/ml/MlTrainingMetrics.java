@@ -1,13 +1,18 @@
+// src/main/java/com/chicu/trader/trading/ml/MlTrainingMetrics.java
 package com.chicu.trader.trading.ml;
 
-import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
-@Data
-@Builder
+/**
+ * Метрики обучения: accuracy, auc и пр.
+ */
+@Getter
+@RequiredArgsConstructor
 public class MlTrainingMetrics {
-    private double accuracy;
-    private double precision;
-    private double recall;
-    private double auc;
+    private final double accuracy;
+    private final double auc;
+    private final String modelPath;
+    private final long durationMillis;
+    private final String notes;
 }

@@ -5,11 +5,13 @@ import com.chicu.trader.trading.model.MarketData;
 import com.chicu.trader.trading.model.MarketSignal;
 
 /**
- * Интерфейс инференса ML-модели.
+ * Интерфейс ML-фильтра: принимает MarketData и возвращает сигнал (BUY/SELL/HOLD).
  */
 public interface MlSignalFilter {
     /**
-     * По входным данным выдаёт сигнал BUY или SELL.
+     * Выполнить инференс на входных данных data для пользователя chatId.
+     * @return один из MarketSignal (BUY/SELL/HOLD)
+     * @throws MlFilterException при ошибке внутри фильтра
      */
-    MarketSignal predict(Long chatId, MarketData data) throws MlInferenceException;
+    MarketSignal predict(Long chatId, MarketData data) throws MlFilterException;
 }

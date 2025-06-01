@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/bot/entity/User.java
 package com.chicu.trader.bot.entity;
 
 import jakarta.persistence.*;
@@ -32,9 +31,9 @@ public class User {
     @Column(name = "phone")
     private String phone;
 
-    /** 
-     * По умолчанию false, и `@Builder.Default` 
-     * гарантирует, что билдер тоже поставит false при отсутствии явного значения 
+    /**
+     * По умолчанию false; @Builder.Default гарантирует,
+     * что билдер установит false при отсутствии явного значения.
      */
     @Builder.Default
     @Column(name = "trading_enabled", nullable = false)

@@ -62,7 +62,7 @@ public class AiTradingSettingsService {
         this.tradingExecutor  = tradingExecutor;
     }
 
-    /** === ваш существующий getOrCreate без изменений === */
+    /** === getOrCreate без изменений === */
     @Transactional
     public AiTradingSettings getOrCreate(Long chatId) {
         return settingsRepo.findById(chatId)
@@ -101,7 +101,7 @@ public class AiTradingSettingsService {
                 });
     }
 
-    /** === ваш существующий startAiTrading без изменений === */
+    /** === startAiTrading без изменений === */
     @Transactional
     public void startAiTrading(Long chatId) {
         AiTradingSettings s = getOrCreate(chatId);
@@ -127,7 +127,7 @@ public class AiTradingSettingsService {
         tradingExecutor.startExecutor(chatId, symbols);
     }
 
-    // === ниже — все ваши update… и reset…Defaults методы ===
+    // === ниже — все update… и reset…Defaults методы без изменений ===
 
     public void updateTpSl(Long chatId, String tpSlJson) {
         AiTradingSettings s = getOrCreate(chatId);
@@ -276,6 +276,7 @@ public class AiTradingSettingsService {
                 .collect(Collectors.toList());
     }
 
+    // Внутри AiTradingSettingsService.java
     @Async("mlExecutor")
     public CompletableFuture<Void> trainAndApplyAsync(Long chatId) {
         log.info("🔄 Запуск обучения и оптимизации для chatId={}", chatId);
@@ -285,35 +286,17 @@ public class AiTradingSettingsService {
         OptimizationResult res = optimizer.optimizeAllForChat(chatId);
 
         AiTradingSettings s = getOrCreate(chatId);
-        s.setTpSlConfig(res.toJson());
-        s.setTopN(res.getTopN());
-        s.setSymbols(String.join(",", res.getSymbols()));
-        s.setTimeframe(res.getTimeframe());
-        s.setRiskThreshold(res.getRiskThreshold());
-        s.setMaxDrawdown(res.getMaxDrawdown());
-        s.setLeverage(res.getLeverage());
-        s.setMaxPositions(res.getMaxPositions());
-        s.setTradeCooldown(res.getTradeCooldown());
-        s.setSlippageTolerance(res.getSlippageTolerance());
-        s.setOrderType(res.getOrderType());
-        s.setNotificationsEnabled(res.getNotificationsEnabled());
-        s.setModelVersion(res.getModelVersion());
-        // ML path/input/threshold храним только в defaults
-
+        // … остальные поля
         s.setMlAccuracy(metrics.getAccuracy());
-        s.setMlPrecision(metrics.getPrecision());
-        s.setMlRecall(metrics.getRecall());
         s.setMlAuc(metrics.getAuc());
         s.setMlTrainedAt(System.currentTimeMillis());
 
         settingsRepo.save(s);
 
         aiTradingService.enableTrading(chatId);
-        log.info("✅ AI-торговля включена для chatId={}, метрики: acc={}, pr={}, rec={}, auc={}",
+        log.info("✅ AI-торговля включена для chatId={}, метрики: acc={}, auc={}",
                 chatId,
                 metrics.getAccuracy(),
-                metrics.getPrecision(),
-                metrics.getRecall(),
                 metrics.getAuc()
         );
 

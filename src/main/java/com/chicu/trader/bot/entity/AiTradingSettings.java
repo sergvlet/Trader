@@ -32,6 +32,7 @@ public class AiTradingSettings {
     private String tpSlConfig;
 
     /** Реинвестирование средств */
+    @Builder.Default
     @Column(name = "reinvest_enabled", nullable = false)
     private Boolean reinvestEnabled = false;
 
@@ -40,6 +41,7 @@ public class AiTradingSettings {
     private String symbols; // например "BTCUSDT,ETHUSDT"
 
     /** Top N: сколько топ-пар брать */
+    @Builder.Default
     @Column(name = "top_n", nullable = false)
     private Integer topN = 5;
 
@@ -78,8 +80,9 @@ public class AiTradingSettings {
     private String orderType;
 
     /** Включены ли уведомления о сделках */
+    @Builder.Default
     @Column(name = "notifications_enabled")
-    private Boolean notificationsEnabled;
+    private Boolean notificationsEnabled = true;
 
     /** Версия ML-модели для сигналов */
     @Column(name = "model_version", length = 64)
@@ -89,6 +92,7 @@ public class AiTradingSettings {
     @Column(name = "leverage")
     private Integer leverage;
 
+    @Builder.Default
     @Column(name = "cached_candles_limit")
     private Integer cachedCandlesLimit = 500;
 
@@ -124,14 +128,15 @@ public class AiTradingSettings {
     @Column(name = "ml_trained_at")
     private Long mlTrainedAt;
 
+    @Builder.Default
     @Column(name = "is_running", nullable = false)
     private Boolean isRunning = false;
 
     /** Код выбранной стратегии (RSI_EMA, ML_MODEL и т.д.) */
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "strategy", length = 64, nullable = false)
     private StrategyType strategy = StrategyType.DEFAULT;
-
 
     /** Версия для оптимистичной блокировки */
     @Version

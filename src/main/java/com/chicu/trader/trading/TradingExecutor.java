@@ -21,7 +21,7 @@ public class TradingExecutor {
     private final HttpBinanceWebSocketService  wsService;
 
     /**
-     * Этот метод будет вызван WebSocket‐сервисом при каждом новом закрытом баре.
+     * Вызывается WebSocket‐сервисом при каждом закрытом баре.
      */
     private void handleCandle(Long chatId, Candle candle) {
         List<ProfitablePair> pairs = pairRepo.findByUserChatIdAndActiveTrue(chatId);
@@ -37,25 +37,27 @@ public class TradingExecutor {
     }
 
     /**
-     * Подписаться на WebSocket и начать обрабатывать новые закрытые свечи.
+     * Подписаться на WS и начать обрабатывать закрытые свечи.
      */
     public void startExecutor(Long chatId, List<String> symbols) {
-        // Передаём коллбэк, который включает chatId
         wsService.startSubscriptions(chatId, symbols, candle -> handleCandle(chatId, candle));
         log.info("Торговый исполнитель запущен для chatId={} symbols={}", chatId, symbols);
     }
 
     /**
-     * Остановить все WS‐подписки и прекратить исполнять стратегии.
+     * Остановить все подписки.
      */
     public void stopExecutor() {
         wsService.stopSubscriptions();
         log.info("Торговый исполнитель остановлен");
     }
+
+    /**
+     * Перезапустить подписки с новым списком символов.
+     */
     public void updateExecutor(Long chatId, List<String> newSymbols) {
         wsService.stopSubscriptions(chatId);
         wsService.startSubscriptions(chatId, newSymbols, candle -> handleCandle(chatId, candle));
         log.info("Перезапущен торговый исполнитель для chatId={} с новыми парами: {}", chatId, newSymbols);
     }
-
 }
