@@ -25,7 +25,17 @@ import java.util.Optional;
  */
 public class StrategyContext {
 
+    /**
+     * -- GETTER --
+     * ID пользователя, для которого мы торгуем
+     */
+    @Getter
     private final Long chatId;
+    /**
+     * -- GETTER --
+     * Текущая свеча
+     */
+    @Getter
     private final Candle candle;
     private final List<String> symbols;
     private final CandleService candleService;
@@ -44,16 +54,6 @@ public class StrategyContext {
         this.candleService = candleService;
         this.indicatorService = indicatorService;
         this.mlFilter = mlFilter;
-    }
-
-    /** ID пользователя, для которого мы торгуем */
-    public Long getChatId() {
-        return chatId;
-    }
-
-    /** Текущая свеча */
-    public Candle getCandle() {
-        return candle;
     }
 
     /** Символ (например "BTCUSDT") текущей свечи */

@@ -1,5 +1,5 @@
 // src/main/java/com/chicu/trader/trading/indicator/EmaCalculator.java
-package com.chicu.trader.trading.indicator;
+package com.chicu.trader.strategy.rsiema;
 
 import java.util.ArrayList;
 import java.util.List;

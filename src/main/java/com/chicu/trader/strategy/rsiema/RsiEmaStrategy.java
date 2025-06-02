@@ -4,8 +4,6 @@ package com.chicu.trader.strategy.rsiema;
 import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.strategy.StrategyType;
-import com.chicu.trader.trading.indicator.EmaCalculator;
-import com.chicu.trader.trading.indicator.RsiCalculator;
 import com.chicu.trader.trading.model.Candle;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
