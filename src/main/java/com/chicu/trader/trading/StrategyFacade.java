@@ -20,13 +20,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Умный фасад для работы с любыми стратегиями.
- * Извлекает из настроек пользователя выбранный StrategyType,
- * берёт соответствующий TradeStrategy у StrategyRegistry,
- * затем для каждой «профитной» пары запрашивает исторические свечи,
- * вызывает strat.evaluate(...) и, в зависимости от сигнала, открывает/закрывает позиции.
- */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -39,61 +32,42 @@ public class StrategyFacade {
     private final OrderService               orderService;
     private final TradeLogRepository         tradeLogRepository;
 
-    /**
-     * Основной метод: перебирает все переданные ProfitablePair,
-     * для каждой пары вычисляет сигнал по выбранной стратегии.
-     *
-     * @param chatId идентификатор пользователя
-     * @param pairs  список ProfitablePair (символы, TP/SL и т.п.)
-     */
     public void applyStrategies(Long chatId, List<ProfitablePair> pairs) {
-        // 1) Загружаем настройки AI-торговли (включая выбранный StrategyType)
         AiTradingSettings settings = settingsService.getOrCreate(chatId);
         TradeStrategy strat = registry.getByType(settings.getStrategy());
         log.info("StrategyFacade: для chatId={} выбрана стратегия {}", chatId, settings.getStrategy());
 
-        // 2) Для каждой «профитной» пары
         for (ProfitablePair pair : pairs) {
             String symbol = pair.getSymbol();
             log.info("StrategyFacade: начинаем обработку пары symbol={} для chatId={}", symbol, chatId);
 
-            // 2.1) Запрашиваем исторические свечи через CandleService.history(...)
             Duration interval = parseDuration(settings.getTimeframe());
-            List<Candle> candles = candleService.history(
-                    symbol,
-                    interval,
-                    settings.getCachedCandlesLimit()
-            );
+            List<Candle> candles = candleService.history(symbol, interval, settings.getCachedCandlesLimit());
             if (candles == null || candles.isEmpty()) {
                 log.warn("StrategyFacade: нет свечей для symbol={} chatId={}", symbol, chatId);
                 continue;
             }
+
             log.debug("StrategyFacade: получено {} свечей для symbol={} chatId={}", candles.size(), symbol, chatId);
 
-            // 2.2) Вычисляем сигнал у выбранной стратегии
             double lastClose = candles.get(candles.size() - 1).getClose();
-            log.debug("StrategyFacade: передаем последние данные стратегии (symbol={}, lastClose={}) для chatId={}",
-                    symbol, lastClose, chatId);
             SignalType signal = strat.evaluate(candles, settings);
             log.info("StrategyFacade: сигнал стратегии для symbol={} chatId={} -> {}", symbol, chatId, signal);
 
-            // 2.3) Берём текущую цену как цену закрытия последней свечи
             double currentPrice = lastClose;
 
             switch (signal) {
-                case BUY:
+                case BUY -> {
                     log.info("StrategyFacade: найден сигнал BUY для symbol={} chatId={} (price={})", symbol, chatId, currentPrice);
                     enterTrade(chatId, symbol, currentPrice, settings, pair);
-                    break;
-                case SELL:
+                }
+                case SELL -> {
                     log.info("StrategyFacade: найден сигнал SELL для symbol={} chatId={} (price={})", symbol, chatId, currentPrice);
                     exitAllTrades(chatId, symbol, currentPrice);
-                    break;
-                case HOLD:
-                default:
+                }
+                case HOLD -> {
                     log.debug("StrategyFacade: сигнал HOLD для symbol={} chatId={} (price={})", symbol, chatId, currentPrice);
-                    // ничего не делаем
-                    break;
+                }
             }
         }
     }
@@ -104,17 +78,24 @@ public class StrategyFacade {
                             AiTradingSettings settings,
                             ProfitablePair pair) {
 
-        double riskPct = settings.getRiskThreshold() != null
-                ? settings.getRiskThreshold()
-                : 0.0;
+        double riskPct = settings.getRiskThreshold() != null ? settings.getRiskThreshold() : 0.0;
         log.debug("enterTrade: chatId={}, symbol={}, riskPct={}", chatId, symbol, riskPct);
 
-        String baseAsset = symbol.replaceAll("[A-Z]+$", "");
+        String baseAsset = extractBaseAsset(symbol);
+        if (baseAsset.isEmpty()) {
+            log.error("enterTrade: не удалось определить baseAsset для symbol={} chatId={}", symbol, chatId);
+            return;
+        }
+
         double balance = accountService.getFreeBalance(chatId, baseAsset);
-        log.debug("enterTrade: свободный баланс для {} = {} {}", chatId, balance, baseAsset);
+        log.info("enterTrade: свободный баланс для chatId={} asset={} = {}", chatId, baseAsset, balance);
 
         double usdValue = balance * riskPct / 100.0;
-        double qty = usdValue > 0 ? usdValue / price : 0.0;
+        double qty = usdValue > 0 ? roundQuantity(usdValue / price) : 0.0;
+
+        // GTI = округлённое qty
+        log.info("enterTrade: рассчитанное qty (GTI) для chatId={}, symbol={} = {}", chatId, symbol, qty);
+
         if (qty <= 0) {
             log.warn("enterTrade: qty=0 для chatId={}, symbol={}, balance={}, riskPct={}",
                     chatId, symbol, balance, riskPct);
@@ -123,7 +104,6 @@ public class StrategyFacade {
 
         double tpPct = pair.getTakeProfitPct();
         double slPct = pair.getStopLossPct();
-        log.debug("enterTrade: tpPct={}, slPct={} для symbol={} chatId={}", tpPct, slPct, symbol, chatId);
 
         double tpPrice = (tpPct > 0)
                 ? price * (1 + tpPct / 100.0)
@@ -186,6 +166,20 @@ public class StrategyFacade {
             log.info("Exited trade: chatId={}, symbol={}, qty={}, exitPrice={}, PnL={}, reason={}",
                     chatId, symbol, qty, open.getExitPrice(), open.getPnl(), reason);
         }
+    }
+
+    private String extractBaseAsset(String symbol) {
+        String[] quoteAssets = {"USDT", "BUSD", "BTC", "ETH"};
+        for (String quote : quoteAssets) {
+            if (symbol.endsWith(quote)) {
+                return symbol.substring(0, symbol.length() - quote.length());
+            }
+        }
+        return "";
+    }
+
+    private double roundQuantity(double qty) {
+        return Math.floor(qty * 1000) / 1000.0; // округляем до 3 знаков после запятой
     }
 
     private Duration parseDuration(String timeframe) {

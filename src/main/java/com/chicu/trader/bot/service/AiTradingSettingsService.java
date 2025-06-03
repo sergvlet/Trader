@@ -335,6 +335,11 @@ public class AiTradingSettingsService {
         s.setStrategy(StrategyType.valueOf(strategyCode));
         settingsRepo.save(s);
     }
+    public AiTradingSettings getSettingsOrThrow(Long chatId) {
+        return settingsRepo.findByUserChatId(chatId)
+                .orElseThrow(() -> new IllegalStateException("AiTradingSettings not found for chatId=" + chatId));
+    }
+
 
     public void resetStrategyDefaults(Long chatId) {
         updateStrategy(chatId, defaults.getDefaultStrategy());
