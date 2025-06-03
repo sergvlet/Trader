@@ -1,62 +1,77 @@
 package com.chicu.trader.strategy.ml;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
-import com.chicu.trader.strategy.TradeStrategy;
+import com.chicu.trader.strategy.SignalType;
 import com.chicu.trader.strategy.StrategyType;
-import com.chicu.trader.trading.ml.MlFilterException;
-import com.chicu.trader.trading.ml.MlSignalFilter;
+import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.trading.model.Candle;
-import com.chicu.trader.trading.model.MarketData;
-import com.chicu.trader.trading.model.MarketSignal;
+import com.chicu.trader.trading.service.inference.PythonInferenceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
- * Стратегия на основе ML-инференса.
- * Считывает цену закрытия свечей как фичи, передаёт в MlSignalFilter,
- * и на основе MarketSignal возвращает BUY / SELL / HOLD.
+ * ML-стратегия, которая использует обученную модель и вызывает Python-сервис
+ * для оценки текущей ситуации.
  */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class MlModelStrategy implements TradeStrategy {
 
-    private final MlSignalFilter mlFilter;
+    private final MlModelStrategySettingsService settingsService;
+    private final PythonInferenceService inferenceService;
+
+    @Override
+    public SignalType evaluate(List<Candle> candles, AiTradingSettings settings) {
+        Long chatId = settings.getChatId();
+        MlModelStrategySettings cfg = settingsService.getOrCreate(chatId);
+
+        log.debug("ML_MODEL: chatId={}, model={}, features={}, threshold={}",
+                chatId, cfg.getModelPath(), cfg.getFeatureList(), cfg.getThreshold());
+
+        double[] features = extractFeatures(candles, cfg.getFeatureList());
+        double probability = inferenceService.predict(cfg.getModelPath(), features);
+
+        log.info("ML_MODEL: chatId={} → predict={} (threshold={})", chatId, probability, cfg.getThreshold());
+
+        if (probability >= cfg.getThreshold()) {
+            return SignalType.BUY;
+        } else if (probability <= (1.0 - cfg.getThreshold())) {
+            return SignalType.SELL;
+        }
+        return SignalType.HOLD;
+    }
 
     @Override
     public StrategyType getType() {
         return StrategyType.ML_MODEL;
     }
 
-    @Override
-    public SignalType evaluate(List<Candle> candles, AiTradingSettings settings) {
-        // 1) Извлекаем цену закрытия каждой свечи и упаковываем в float[]
-        int n = candles.size();
-        float[] features = new float[n];
-        for (int i = 0; i < n; i++) {
-            features[i] = (float) candles.get(i).getClose();
-        }
+    /**
+     * Парсит список признаков и извлекает из свечей нужные значения.
+     * Пример featureList: "close,volume"
+     */
+    private double[] extractFeatures(List<Candle> candles, String featureList) {
+        if (candles == null || candles.isEmpty()) return new double[0];
 
-        // 2) Оборачиваем в MarketData
-        MarketData data = new MarketData(features);
-
-        // 3) Делаем инференс
-        MarketSignal signal;
-        try {
-            signal = mlFilter.predict(settings.getChatId(), data);
-        } catch (MlFilterException e) {
-            log.error("❌ Ошибка при ML-инференсе для chatId={}, возвращаем HOLD", settings.getChatId(), e);
-            return SignalType.HOLD;
-        }
-
-        // 4) Маппим результат в глобальный SignalType
-        return switch (signal) {
-            case BUY  -> SignalType.BUY;
-            case SELL -> SignalType.SELL;
-            default   -> SignalType.HOLD;
-        };
+        Candle last = candles.get(candles.size() - 1);
+        return Arrays.stream(featureList.split(","))
+                .map(String::trim)
+                .mapToDouble(f -> switch (f.toLowerCase()) {
+                    case "close" -> last.getClose();
+                    case "open" -> last.getOpen();
+                    case "high" -> last.getHigh();
+                    case "low" -> last.getLow();
+                    case "volume" -> last.getVolume();
+                    default -> {
+                        log.warn("ML_MODEL: неизвестный признак '{}'", f);
+                        yield 0.0;
+                    }
+                }).toArray();
     }
 }

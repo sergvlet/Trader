@@ -1,26 +1,25 @@
 package com.chicu.trader.bot.command;
 
-import com.chicu.trader.ml.PythonTrainingService;
+import com.chicu.trader.ml.MlTrainingService;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.bots.AbsSender;
 
 @Service
 public class BotCommandService {
-    private final PythonTrainingService pythonTrainingService;
-    private final AbsSender telegramSender; // предположим, что у вас есть бин для отправки сообщений
+    private final MlTrainingService trainingService;
+    private final AbsSender telegramSender;
 
-    public BotCommandService(PythonTrainingService pythonTrainingService,
+    public BotCommandService(MlTrainingService trainingService,
                              AbsSender telegramSender) {
-        this.pythonTrainingService = pythonTrainingService;
+        this.trainingService = trainingService;
         this.telegramSender = telegramSender;
     }
 
     public void handleTrainCommand(Long chatId) {
-        // Отправим сразу сообщение, что сбор/обучение запущены
         sendText(chatId, "🚀 Запуск сбора данных и обучения ML-модели. Пожалуйста, подождите...");
 
-        boolean success = pythonTrainingService.runTraining();
+        boolean success = trainingService.runTraining();
         if (success) {
             sendText(chatId, "✅ Обучение завершилось успешно! Модель обновлена.");
         } else {
@@ -35,7 +34,7 @@ public class BotCommandService {
             msg.setText(text);
             telegramSender.execute(msg);
         } catch (Exception e) {
-            e.printStackTrace();
+            e.printStackTrace(); // по желанию: заменить на log.warn
         }
     }
 }

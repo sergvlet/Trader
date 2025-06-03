@@ -2,6 +2,7 @@
 package com.chicu.trader.strategy.scalping;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
+import com.chicu.trader.strategy.SignalType;
 import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.strategy.StrategyType;
 import com.chicu.trader.trading.model.Candle;

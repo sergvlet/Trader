@@ -2,8 +2,8 @@
 package com.chicu.trader.bot.menu.feature.ai_trading.strategy.rsiema;
 
 
-import com.chicu.trader.strategy.rsiema.RsiEmaStrategySettings;
-import com.chicu.trader.strategy.rsiema.RsiEmaStrategySettingsService;
+import com.chicu.trader.strategy.rsiema.model.RsiEmaStrategySettings;
+import com.chicu.trader.strategy.rsiema.service.RsiEmaStrategySettingsService;
 import com.chicu.trader.bot.menu.core.MenuState;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;

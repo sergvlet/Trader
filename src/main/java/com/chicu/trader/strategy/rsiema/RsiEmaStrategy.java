@@ -1,9 +1,12 @@
-// src/main/java/com/chicu/trader/strategy/rsiema/RsiEmaStrategy.java
 package com.chicu.trader.strategy.rsiema;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
+import com.chicu.trader.ml.MlTrainingService;
+import com.chicu.trader.strategy.SignalType;
 import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.strategy.StrategyType;
+import com.chicu.trader.strategy.rsiema.model.RsiEmaStrategySettings;
+import com.chicu.trader.strategy.rsiema.service.RsiEmaStrategySettingsService;
 import com.chicu.trader.trading.model.Candle;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,19 +15,20 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Стратегия RSI+EMA:
+ * BUY  — RSI < rsiBuyThreshold && emaShort > emaLong
+ * SELL — RSI > rsiSellThreshold && emaShort < emaLong
+ * иначе HOLD.
+ */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class RsiEmaStrategy implements TradeStrategy {
 
     private final RsiEmaStrategySettingsService configService;
+    private final MlTrainingService trainingService;
 
-    /**
-     * Логика RSI+EMA:
-     * BUY  — RSI < rsiBuyThreshold && emaShort > emaLong
-     * SELL — RSI > rsiSellThreshold && emaShort < emaLong
-     * иначе HOLD.
-     */
     @Override
     public SignalType evaluate(List<Candle> candles, AiTradingSettings settings) {
         Long chatId = settings.getChatId();
@@ -61,9 +65,28 @@ public class RsiEmaStrategy implements TradeStrategy {
         return SignalType.HOLD;
     }
 
-    /** Тип этой стратегии — используется для регистрации в StrategyRegistry */
     @Override
     public StrategyType getType() {
         return StrategyType.RSI_EMA;
+    }
+
+    /**
+     * Метод для запуска обучения (если требуется для стратегии).
+     */
+    public void train(Long chatId) {
+        log.info("RsiEmaStrategy: запуск обучения для chatId={}", chatId);
+        boolean success = trainingService.runTraining(); // можно передавать chatId при необходимости
+        if (success) {
+            log.info("RsiEmaStrategy: обучение завершилось успешно для chatId={}", chatId);
+        } else {
+            log.warn("RsiEmaStrategy: обучение завершилось с ошибкой для chatId={}", chatId);
+        }
+    }
+
+    /**
+     * Используется в StrategyRegistry и при сканировании для определения, нужно ли обучение.
+     */
+    public boolean isTrainable() {
+        return true;
     }
 }

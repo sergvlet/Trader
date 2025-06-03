@@ -8,5 +8,5 @@ import java.util.Optional;
 
 public interface AiTradingSettingsRepository extends JpaRepository<AiTradingSettings, Long> {
     // по chatId
-     Optional<AiTradingSettings> findByChatId(Long chatId);
+     Optional<AiTradingSettings> findByUserChatId(Long chatId);
 }

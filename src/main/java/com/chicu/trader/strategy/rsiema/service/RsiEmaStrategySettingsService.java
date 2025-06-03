@@ -1,9 +1,10 @@
-// src/main/java/com/chicu/trader/strategy/rsiema/RsiEmaStrategySettingsService.java
-package com.chicu.trader.strategy.rsiema;
+package com.chicu.trader.strategy.rsiema.service;
 
 import com.chicu.trader.bot.config.AiTradingDefaults;
 import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.repository.AiTradingSettingsRepository;
+import com.chicu.trader.strategy.rsiema.model.RsiEmaStrategySettings;
+import com.chicu.trader.strategy.rsiema.repository.RsiEmaStrategySettingsRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,8 +25,9 @@ public class RsiEmaStrategySettingsService {
      */
     @Transactional
     public RsiEmaStrategySettings getOrCreate(Long chatId) {
-        return repo.findById(chatId)
-                   .orElseGet(() -> createNew(chatId));
+        return repo.findByAiTradingSettings_ChatId(chatId)
+
+                .orElseGet(() -> createNew(chatId));
     }
 
     /**
@@ -34,32 +36,30 @@ public class RsiEmaStrategySettingsService {
     @Transactional
     public RsiEmaStrategySettings createNew(Long chatId) {
         AiTradingSettings aiSettings = aiRepo.findById(chatId)
-            .orElseThrow(() -> new IllegalStateException("AI settings not found: " + chatId));
+                .orElseThrow(() -> new IllegalStateException("AI settings not found: " + chatId));
 
-        RsiEmaStrategySettings cfg = RsiEmaStrategySettings.builder()
-            .chatId(chatId)
-            .aiSettings(aiSettings)
-            .emaShort(defaults.getDefaultEmaShort())
-            .emaLong(defaults.getDefaultEmaLong())
-            .rsiPeriod(defaults.getDefaultRsiPeriod())
-            .rsiBuyThreshold(defaults.getDefaultRsiBuyThreshold())
-            .rsiSellThreshold(defaults.getDefaultRsiSellThreshold())
-            .build();
+        RsiEmaStrategySettings cfg = new RsiEmaStrategySettings();
+        cfg.setChatId(chatId);
+        cfg.setAiTradingSettings(aiSettings);
+        cfg.setEmaShort(defaults.getDefaultEmaShort());
+        cfg.setEmaLong(defaults.getDefaultEmaLong());
+        cfg.setRsiPeriod(defaults.getDefaultRsiPeriod());
+        cfg.setRsiBuyThreshold(defaults.getDefaultRsiBuyThreshold());
+        cfg.setRsiSellThreshold(defaults.getDefaultRsiSellThreshold());
+        cfg.setCachedCandlesLimit(defaults.getDefaultCachedCandlesLimit());
 
         return repo.saveAndFlush(cfg);
     }
 
     /**
-     * Сохраняет любые изменения в настройках сразу и сбрасывает кэш версий.
+     * Сохраняет любые изменения в настройках сразу.
      */
     @Transactional
     public void save(RsiEmaStrategySettings cfg) {
         repo.saveAndFlush(cfg);
     }
 
-
-
-    // ----- Методы для сброса к дефолтам -----
+    // ----- Методы для сброса параметров к дефолтным -----
 
     @Transactional
     public void resetRsiDefaults(Long chatId) {

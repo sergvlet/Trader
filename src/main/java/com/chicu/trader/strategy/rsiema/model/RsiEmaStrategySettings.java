@@ -1,31 +1,28 @@
-// src/main/java/com/chicu/trader/strategy/rsiema/RsiEmaStrategySettings.java
-package com.chicu.trader.strategy.rsiema;
+package com.chicu.trader.strategy.rsiema.model;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
+import com.chicu.trader.strategy.StrategySettings;
+import com.chicu.trader.strategy.StrategyType;
 import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
 @Table(name = "rsi_ema_strategy_settings")
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RsiEmaStrategySettings {
+@EqualsAndHashCode(callSuper = true)
+public class RsiEmaStrategySettings extends StrategySettings {
 
-    @Id
-    private Long chatId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "chat_id", referencedColumnName = "chat_id", nullable = false)
+    private AiTradingSettings aiTradingSettings;
 
-    @OneToOne
-    @MapsId
-    @JoinColumn(name = "chat_id")
-    private AiTradingSettings aiSettings;
-
-    // Здесь был @Column(nullable = false), меняем на nullable = true
     @Column(nullable = true)
     private String symbol;
 
-    // Также делаем nullable = true
     @Column(nullable = true)
     private String timeframe;
 
@@ -41,7 +38,6 @@ public class RsiEmaStrategySettings {
     @Column(name = "rsi_period", nullable = false)
     private Integer rsiPeriod;
 
-    // Новые thresholds — тоже nullable = true (иначе Hibernate снова попытается создать NOT NULL)
     @Column(name = "rsi_buy_threshold", nullable = true)
     private Double rsiBuyThreshold;
 
@@ -50,5 +46,9 @@ public class RsiEmaStrategySettings {
 
     @Version
     private Long version;
-}
 
+    @Override
+    public StrategyType getType() {
+        return StrategyType.RSI_EMA;
+    }
+}

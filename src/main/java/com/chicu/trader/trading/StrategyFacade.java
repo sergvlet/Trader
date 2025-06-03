@@ -1,10 +1,10 @@
-// src/main/java/com/chicu/trader/trading/StrategyFacade.java
 package com.chicu.trader.trading;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.model.ProfitablePair;
 import com.chicu.trader.model.TradeLog;
+import com.chicu.trader.strategy.SignalType;
 import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.strategy.StrategyRegistry;
 import com.chicu.trader.trading.model.Candle;
@@ -74,7 +74,7 @@ public class StrategyFacade {
             double lastClose = candles.get(candles.size() - 1).getClose();
             log.debug("StrategyFacade: передаем последние данные стратегии (symbol={}, lastClose={}) для chatId={}",
                     symbol, lastClose, chatId);
-            TradeStrategy.SignalType signal = strat.evaluate(candles, settings);
+            SignalType signal = strat.evaluate(candles, settings);
             log.info("StrategyFacade: сигнал стратегии для symbol={} chatId={} -> {}", symbol, chatId, signal);
 
             // 2.3) Берём текущую цену как цену закрытия последней свечи
@@ -98,16 +98,6 @@ public class StrategyFacade {
         }
     }
 
-    /**
-     * Открытие позиции: рассчитывает объём на основе riskThreshold% от свободного баланса,
-     * создаёт OCO-ордер (TP + SL), сохраняет вход в TradeLog.
-     *
-     * @param chatId       идентификатор пользователя
-     * @param symbol       торгуемый символ
-     * @param price        текущая цена
-     * @param settings     настройки AI-торговли пользователя
-     * @param pair         объект ProfitablePair с TP/SL процентами
-     */
     private void enterTrade(Long chatId,
                             String symbol,
                             double price,
@@ -119,7 +109,6 @@ public class StrategyFacade {
                 : 0.0;
         log.debug("enterTrade: chatId={}, symbol={}, riskPct={}", chatId, symbol, riskPct);
 
-        // Базовый актив (например, если symbol="BTCUSDT", baseAsset="BTC")
         String baseAsset = symbol.replaceAll("[A-Z]+$", "");
         double balance = accountService.getFreeBalance(chatId, baseAsset);
         log.debug("enterTrade: свободный баланс для {} = {} {}", chatId, balance, baseAsset);
@@ -132,12 +121,10 @@ public class StrategyFacade {
             return;
         }
 
-        // ProfitablePair.getTakeProfitPct() и getStopLossPct() возвращают примитив double:
         double tpPct = pair.getTakeProfitPct();
         double slPct = pair.getStopLossPct();
         log.debug("enterTrade: tpPct={}, slPct={} для symbol={} chatId={}", tpPct, slPct, symbol, chatId);
 
-        // Если в ProfitablePair настроек нет (pct == 0), используем риск в качестве TP/SL
         double tpPrice = (tpPct > 0)
                 ? price * (1 + tpPct / 100.0)
                 : price * (1 + riskPct / 100.0);
@@ -147,12 +134,10 @@ public class StrategyFacade {
 
         log.info("enterTrade: рассчитываем TP={} SL={} для symbol={} chatId={}", tpPrice, slPrice, symbol, chatId);
 
-        // Размещаем OCO-ордер: SL + TP
         orderService.placeOcoOrder(chatId, symbol, qty, slPrice, tpPrice);
         log.info("enterTrade: отправлен OCO-ордер chatId={}, symbol={}, qty={}, SL={}, TP={}",
                 chatId, symbol, qty, slPrice, tpPrice);
 
-        // Сохраняем запись в TradeLog
         TradeLog entry = TradeLog.builder()
                 .userChatId(chatId)
                 .symbol(symbol)
@@ -169,14 +154,6 @@ public class StrategyFacade {
                 chatId, symbol, qty, price, tpPrice, slPrice);
     }
 
-    /**
-     * Закрытие всех незакрытых сделок по символу:
-     * если сработал TP/SL или пришёл SELL-сигнал, принудительно закрываем.
-     *
-     * @param chatId    идентификатор пользователя
-     * @param symbol    торгуемый символ
-     * @param exitPrice цена закрытия
-     */
     private void exitAllTrades(Long chatId, String symbol, double exitPrice) {
         log.debug("exitAllTrades: chatId={}, symbol={}, exitPrice={}", chatId, symbol, exitPrice);
 
@@ -187,17 +164,15 @@ public class StrategyFacade {
         for (TradeLog open : openTrades) {
             double entryPrice = open.getEntryPrice();
             double qty = open.getQuantity();
-            double tp = open.getTakeProfitPrice();   // возвращает примитив double
-            double sl = open.getStopLossPrice();     // возвращает примитив double
+            double tp = open.getTakeProfitPrice();
+            double sl = open.getStopLossPrice();
 
             boolean hitTp = (tp > 0) && (exitPrice >= tp);
             boolean hitSl = (sl > 0) && (exitPrice <= sl);
-            // При SELL-сигнале – force-close даже без TP/SL
             if (!hitTp && !hitSl) {
                 log.info("exitAllTrades: force-close (SELL-сигнал) для chatId={}, symbol={}", chatId, symbol);
             }
 
-            // Размещаем рыночный ордер на закрытие
             orderService.placeMarketOrder(chatId, symbol, qty);
             log.info("exitAllTrades: отправлен рыночный ордер на закрытие chatId={}, symbol={}, qty={}", chatId, symbol, qty);
 
@@ -213,10 +188,6 @@ public class StrategyFacade {
         }
     }
 
-    /**
-     * Преобразует строковый таймфрейм ("1m", "5m", "1h", "4h", "1d" и т. д.)
-     * в объект Duration. Если строка нераспознана, по умолчанию возвращает Duration.ofMinutes(1).
-     */
     private Duration parseDuration(String timeframe) {
         if (timeframe == null || timeframe.isEmpty()) {
             return Duration.ofMinutes(1);
