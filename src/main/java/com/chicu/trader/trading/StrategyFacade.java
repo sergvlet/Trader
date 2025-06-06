@@ -16,6 +16,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -25,48 +27,50 @@ import java.util.List;
 @Slf4j
 public class StrategyFacade {
 
-    private final StrategyRegistry           registry;
-    private final AiTradingSettingsService   settingsService;
-    private final CandleService              candleService;
-    private final AccountService             accountService;
-    private final OrderService               orderService;
-    private final TradeLogRepository         tradeLogRepository;
+    private final StrategyRegistry         registry;
+    private final AiTradingSettingsService settingsService;
+    private final CandleService            candleService;
+    private final AccountService           accountService;
+    private final OrderService             orderService;
+    private final TradeLogRepository       tradeLogRepository;
 
     public void applyStrategies(Long chatId, List<ProfitablePair> pairs) {
         AiTradingSettings settings = settingsService.getOrCreate(chatId);
         TradeStrategy strat = registry.getByType(settings.getStrategy());
-        log.info("StrategyFacade: для chatId={} выбрана стратегия {}", chatId, settings.getStrategy());
+        log.info("StrategyFacade ▶ для chatId={} выбрана стратегия={}", chatId, settings.getStrategy());
 
         for (ProfitablePair pair : pairs) {
             String symbol = pair.getSymbol();
-            log.info("StrategyFacade: начинаем обработку пары symbol={} для chatId={}", symbol, chatId);
+            log.info("StrategyFacade ▶ начинаем обработку пары symbol={} для chatId={}", symbol, chatId);
 
             Duration interval = parseDuration(settings.getTimeframe());
             List<Candle> candles = candleService.history(symbol, interval, settings.getCachedCandlesLimit());
             if (candles == null || candles.isEmpty()) {
-                log.warn("StrategyFacade: нет свечей для symbol={} chatId={}", symbol, chatId);
+                log.warn("StrategyFacade ▶ нет свечей для symbol={} chatId={}", symbol, chatId);
                 continue;
             }
 
-            log.debug("StrategyFacade: получено {} свечей для symbol={} chatId={}", candles.size(), symbol, chatId);
+            log.debug("StrategyFacade ▶ получено {} свечей для symbol={} chatId={}", candles.size(), symbol, chatId);
 
             double lastClose = candles.get(candles.size() - 1).getClose();
             SignalType signal = strat.evaluate(candles, settings);
-            log.info("StrategyFacade: сигнал стратегии для symbol={} chatId={} -> {}", symbol, chatId, signal);
+            log.info("StrategyFacade ▶ сигнал стратегии для symbol={} chatId={} → {}", symbol, chatId, signal);
 
             double currentPrice = lastClose;
-
             switch (signal) {
                 case BUY -> {
-                    log.info("StrategyFacade: найден сигнал BUY для symbol={} chatId={} (price={})", symbol, chatId, currentPrice);
+                    log.info("StrategyFacade ▶ найден сигнал BUY для symbol={} chatId={} (price={})",
+                            symbol, chatId, currentPrice);
                     enterTrade(chatId, symbol, currentPrice, settings, pair);
                 }
                 case SELL -> {
-                    log.info("StrategyFacade: найден сигнал SELL для symbol={} chatId={} (price={})", symbol, chatId, currentPrice);
+                    log.info("StrategyFacade ▶ найден сигнал SELL для symbol={} chatId={} (price={})",
+                            symbol, chatId, currentPrice);
                     exitAllTrades(chatId, symbol, currentPrice);
                 }
                 case HOLD -> {
-                    log.debug("StrategyFacade: сигнал HOLD для symbol={} chatId={} (price={})", symbol, chatId, currentPrice);
+                    log.debug("StrategyFacade ▶ сигнал HOLD для symbol={} chatId={} (price={})",
+                            symbol, chatId, currentPrice);
                 }
             }
         }
@@ -78,46 +82,104 @@ public class StrategyFacade {
                             AiTradingSettings settings,
                             ProfitablePair pair) {
 
-        double riskPct = settings.getRiskThreshold() != null ? settings.getRiskThreshold() : 0.0;
-        log.debug("enterTrade: chatId={}, symbol={}, riskPct={}", chatId, symbol, riskPct);
+        double riskPct = settings.getRiskThreshold() != null
+                ? settings.getRiskThreshold()
+                : 0.0;
+        log.debug("enterTrade ▶ chatId={}, symbol={}, riskPct={}", chatId, symbol, riskPct);
 
-        String baseAsset = extractBaseAsset(symbol);
-        if (baseAsset.isEmpty()) {
-            log.error("enterTrade: не удалось определить baseAsset для symbol={} chatId={}", symbol, chatId);
+        // 1) Определяем quoteAsset
+        String quoteAsset;
+        if (symbol.endsWith("USDT")) {
+            quoteAsset = "USDT";
+        } else if (symbol.endsWith("BUSD")) {
+            quoteAsset = "BUSD";
+        } else if (symbol.endsWith("BTC")) {
+            quoteAsset = "BTC";
+        } else if (symbol.endsWith("ETH")) {
+            quoteAsset = "ETH";
+        } else {
+            quoteAsset = symbol.replaceFirst("^[A-Z]+", "");
+        }
+
+        // 2) Узнаём свободный баланс quoteAsset
+        double quoteBalance = accountService.getFreeBalance(chatId, quoteAsset);
+        log.debug("enterTrade ▶ свободный баланс для chatId={} asset={} = {}", chatId, quoteAsset, quoteBalance);
+
+        // 3) Сколько тратим из quoteBalance
+        double amountToSpend = quoteBalance * (riskPct / 100.0);
+        if (amountToSpend <= 0) {
+            log.warn("enterTrade ▶ amountToSpend=0 (quoteBalance={} riskPct={}) для chatId={}, symbol={}",
+                    quoteBalance, riskPct, chatId, symbol);
             return;
         }
 
-        double balance = accountService.getFreeBalance(chatId, baseAsset);
-        log.info("enterTrade: свободный баланс для chatId={} asset={} = {}", chatId, baseAsset, balance);
+        // 4) rawQty = amountToSpend / price
+        double rawQty = amountToSpend / price;
+        log.debug("enterTrade ▶ рассчитано rawQty = {}", rawQty);
 
-        double usdValue = balance * riskPct / 100.0;
-        double qty = usdValue > 0 ? roundQuantity(usdValue / price) : 0.0;
-
-        // GTI = округлённое qty
-        log.info("enterTrade: рассчитанное qty (GTI) для chatId={}, symbol={} = {}", chatId, symbol, qty);
-
+        // 5) Обрезаем qty до 3 знаков (DOWN)
+        double qty = roundQuantity(rawQty);
         if (qty <= 0) {
-            log.warn("enterTrade: qty=0 для chatId={}, symbol={}, balance={}, riskPct={}",
-                    chatId, symbol, balance, riskPct);
+            log.warn("enterTrade ▶ qty после округления = 0 (rawQty={}) для chatId={}, symbol={}",
+                    rawQty, chatId, symbol);
             return;
         }
+        log.debug("enterTrade ▶ qty после truncate (3 знака) = {}", qty);
 
+        // 6) Рассчитываем “сырые” TP/SL на основе процентов
         double tpPct = pair.getTakeProfitPct();
         double slPct = pair.getStopLossPct();
+        log.debug("enterTrade ▶ tpPct={}, slPct={} для symbol={} chatId={}",
+                tpPct, slPct, symbol, chatId);
 
-        double tpPrice = (tpPct > 0)
+        double rawTpPrice = (tpPct > 0)
                 ? price * (1 + tpPct / 100.0)
                 : price * (1 + riskPct / 100.0);
-        double slPrice = (slPct > 0)
+        double rawSlPrice = (slPct > 0)
                 ? price * (1 - slPct / 100.0)
                 : price * (1 - riskPct / 100.0);
 
-        log.info("enterTrade: рассчитываем TP={} SL={} для symbol={} chatId={}", tpPrice, slPrice, symbol, chatId);
+        // 7) Обрезаем TP/SL до 2 знаков (DOWN)
+        double tpPrice = roundPrice(rawTpPrice);
+        double slPrice = roundPrice(rawSlPrice);
+        log.info("enterTrade ▶ рассчитываем TP={} SL={} для symbol={} chatId={}",
+                tpPrice, slPrice, symbol, chatId);
 
-        orderService.placeOcoOrder(chatId, symbol, qty, slPrice, tpPrice);
-        log.info("enterTrade: отправлен OCO-ордер chatId={}, symbol={}, qty={}, SL={}, TP={}",
+        // --- Проверяем корректность отношений для OCO:
+        //    нужно, чтобы tpPrice > price > slPrice
+        if (!(tpPrice > price && price > slPrice)) {
+            log.error("enterTrade ▶ неверное соотношение цен для OCO — пропускаем OCO. price={}, slPrice={}, tpPrice={}",
+                    price, slPrice, tpPrice);
+            // Всё равно продолжаем вход (MARKET), но без OCO‐защиты
+        }
+
+        // === ШАГ 1: MARKET BUY ===
+        log.info("enterTrade ▶ пытаемся отправить рыночный ордер BUY chatId={} symbol={} qty={}",
+                chatId, symbol, qty);
+        try {
+            orderService.placeMarketOrder(chatId, symbol, qty);
+            log.info("enterTrade ▶ MarketOrder (BUY) отправлен успешно chatId={} symbol={} qty={}",
+                    chatId, symbol, qty);
+        } catch (Exception e) {
+            log.error("enterTrade ▶ Binance вернул ошибку при MarketOrder (BUY) chatId={} symbol={} qty={}: {}",
+                    chatId, symbol, qty, e.getMessage(), e);
+            return;
+        }
+
+        // === ШАГ 2: OCO SELL (защита TP/SL) ===
+        log.info("enterTrade ▶ пытаемся отправить OCO-ордер SELL chatId={} symbol={} qty={} SL={} TP={}",
                 chatId, symbol, qty, slPrice, tpPrice);
+        try {
+            orderService.placeOcoOrder(chatId, symbol, qty, slPrice, tpPrice);
+            log.info("enterTrade ▶ OCO-ордер (SELL) отправлен успешно chatId={} symbol={} qty={} SL={} TP={}",
+                    chatId, symbol, qty, slPrice, tpPrice);
+        } catch (Exception e) {
+            log.error("enterTrade ▶ Binance вернул ошибку при OCO-ордере SELL chatId={} symbol={} qty={} SL={} TP={}: {}",
+                    chatId, symbol, qty, slPrice, tpPrice, e.getMessage(), e);
+            // Сделка уже открыта, но без OCO‐защиты
+        }
 
+        // === ШАГ 3: сохраняем запись в TradeLog ===
         TradeLog entry = TradeLog.builder()
                 .userChatId(chatId)
                 .symbol(symbol)
@@ -130,16 +192,17 @@ public class StrategyFacade {
                 .build();
         tradeLogRepository.save(entry);
 
-        log.info("Entered trade: chatId={}, symbol={}, qty={}, entryPrice={}, TP={}, SL={}",
+        log.info("enterTrade ▶ Entered trade chatId={} symbol={} qty={} entryPrice={} TP={} SL={}",
                 chatId, symbol, qty, price, tpPrice, slPrice);
     }
 
     private void exitAllTrades(Long chatId, String symbol, double exitPrice) {
-        log.debug("exitAllTrades: chatId={}, symbol={}, exitPrice={}", chatId, symbol, exitPrice);
+        log.debug("exitAllTrades ▶ chatId={}, symbol={}, exitPrice={}", chatId, symbol, exitPrice);
 
         List<TradeLog> openTrades = tradeLogRepository
                 .findAllByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
-        log.debug("exitAllTrades: найдено {} открытых сделок для symbol={} chatId={}", openTrades.size(), symbol, chatId);
+        log.debug("exitAllTrades ▶ найдено {} открытых сделок для symbol={} chatId={}",
+                openTrades.size(), symbol, chatId);
 
         for (TradeLog open : openTrades) {
             double entryPrice = open.getEntryPrice();
@@ -150,11 +213,20 @@ public class StrategyFacade {
             boolean hitTp = (tp > 0) && (exitPrice >= tp);
             boolean hitSl = (sl > 0) && (exitPrice <= sl);
             if (!hitTp && !hitSl) {
-                log.info("exitAllTrades: force-close (SELL-сигнал) для chatId={}, symbol={}", chatId, symbol);
+                log.info("exitAllTrades ▶ force-close (SELL-сигнал) для chatId={} symbol={}", chatId, symbol);
             }
 
-            orderService.placeMarketOrder(chatId, symbol, qty);
-            log.info("exitAllTrades: отправлен рыночный ордер на закрытие chatId={}, symbol={}, qty={}", chatId, symbol, qty);
+            log.info("exitAllTrades ▶ пытаемся отправить рыночный ордер SELL chatId={} symbol={} qty={}",
+                    chatId, symbol, qty);
+            try {
+                orderService.placeMarketOrder(chatId, symbol, qty);
+                log.info("exitAllTrades ▶ MarketOrder (SELL) отправлен успешно chatId={} symbol={} qty={}",
+                        chatId, symbol, qty);
+            } catch (Exception e) {
+                log.error("exitAllTrades ▶ Binance вернул ошибку при MarketOrder (SELL) chatId={} symbol={} qty={}: {}",
+                        chatId, symbol, qty, e.getMessage(), e);
+                // продолжаем закрывать остальные
+            }
 
             open.setExitTime(Instant.now());
             open.setClosed(true);
@@ -163,23 +235,21 @@ public class StrategyFacade {
             tradeLogRepository.save(open);
 
             String reason = hitTp ? "TP" : (hitSl ? "SL" : "SELL_SIGNAL");
-            log.info("Exited trade: chatId={}, symbol={}, qty={}, exitPrice={}, PnL={}, reason={}",
+            log.info("exitAllTrades ▶ Exited trade chatId={} symbol={} qty={} exitPrice={} PnL={} reason={}",
                     chatId, symbol, qty, open.getExitPrice(), open.getPnl(), reason);
         }
     }
 
-    private String extractBaseAsset(String symbol) {
-        String[] quoteAssets = {"USDT", "BUSD", "BTC", "ETH"};
-        for (String quote : quoteAssets) {
-            if (symbol.endsWith(quote)) {
-                return symbol.substring(0, symbol.length() - quote.length());
-            }
-        }
-        return "";
+    /** Обрезает qty до 3 знаков после запятой (RoundingMode.DOWN). */
+    private double roundQuantity(double qty) {
+        BigDecimal bd = new BigDecimal(qty);
+        return bd.setScale(3, RoundingMode.DOWN).doubleValue();
     }
 
-    private double roundQuantity(double qty) {
-        return Math.floor(qty * 1000) / 1000.0; // округляем до 3 знаков после запятой
+    /** Обрезает price до 2 знаков после запятой (RoundingMode.DOWN). */
+    private double roundPrice(double price) {
+        BigDecimal bd = new BigDecimal(price);
+        return bd.setScale(2, RoundingMode.DOWN).doubleValue();
     }
 
     private Duration parseDuration(String timeframe) {
@@ -199,7 +269,7 @@ public class StrategyFacade {
                 return Duration.ofDays(days);
             }
         } catch (NumberFormatException e) {
-            log.warn("parseDuration: не удалось распарсить timeframe='{}', используем 1m", timeframe);
+            log.warn("parseDuration ▶ не удалось распарсить timeframe='{}', используем 1m", timeframe);
         }
         return Duration.ofMinutes(1);
     }

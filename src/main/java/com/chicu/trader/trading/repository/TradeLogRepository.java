@@ -21,4 +21,6 @@ public interface TradeLogRepository extends JpaRepository<TradeLog, Long> {
             String symbol
     );
     Optional<TradeLog> findTopByUserChatIdOrderByEntryTimeDesc(Long chatId);
+
+
 }

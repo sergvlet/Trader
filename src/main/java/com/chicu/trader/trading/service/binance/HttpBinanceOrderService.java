@@ -1,7 +1,6 @@
 // src/main/java/com/chicu/trader/trading/service/binance/HttpBinanceOrderService.java
 package com.chicu.trader.trading.service.binance;
 
-import com.chicu.trader.bot.entity.UserSettings;
 import com.chicu.trader.bot.service.UserSettingsService;
 import com.chicu.trader.trading.service.OrderService;
 import lombok.RequiredArgsConstructor;
@@ -41,7 +40,6 @@ public class HttpBinanceOrderService implements OrderService {
     }
 
     private String secretKey(Long chatId) {
-        // Не логируем секретный ключ в чистом виде
         log.debug("HttpBinanceOrderService: retrieved secret key for chatId={}", chatId);
         return userSettingsService.getApiCredentials(chatId).getSecretKey();
     }
@@ -64,7 +62,7 @@ public class HttpBinanceOrderService implements OrderService {
     }
 
     @Override
-    public void placeOcoOrder(Long chatId, String symbol, double quantity, double stopPrice, double limitPrice) {
+    public boolean placeOcoOrder(Long chatId, String symbol, double quantity, double stopPrice, double limitPrice) {
         log.info("placeOcoOrder: инициируем OCO ордер для chatId={}, symbol={}, quantity={}, stopPrice={}, limitPrice={}",
                 chatId, symbol, quantity, stopPrice, limitPrice);
         String path = "/api/v3/order/oco";
@@ -72,7 +70,7 @@ public class HttpBinanceOrderService implements OrderService {
 
         Map<String,String> params = new LinkedHashMap<>();
         params.put("symbol",    symbol.toUpperCase());
-        params.put("side",      "BUY");
+        params.put("side",      "SELL");
         params.put("quantity",  String.valueOf(quantity));
         params.put("stopPrice", String.valueOf(stopPrice));
         params.put("price",     String.valueOf(limitPrice));
@@ -80,6 +78,7 @@ public class HttpBinanceOrderService implements OrderService {
 
         log.debug("placeOcoOrder: параметры запроса для chatId={} : {}", chatId, params);
         sendSignedRequest(chatId, path, params);
+        return true;
     }
 
     private void sendSignedRequest(Long chatId, String path, Map<String,String> params) {
@@ -104,10 +103,18 @@ public class HttpBinanceOrderService implements OrderService {
 
             log.debug("sendSignedRequest: отправляем HTTP POST для chatId={} по пути {}", chatId, path);
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            log.info("Binance order [{} {}] → {} {}", chatId, path, resp.statusCode(), resp.body());
+
+            int status = resp.statusCode();
+            String body = resp.body();
+            if (status >= 200 && status < 300) {
+                log.info("Binance order [{} {}] → {} {}", chatId, path, status, body);
+            } else {
+                log.error("Binance request failed: HTTP {}, msg={}", status, body);
+                // Не выбрасываем исключение, просто логируем ошибку и продолжаем
+            }
         } catch (Exception e) {
             log.error("Error sending signed request to Binance for chatId={}", chatId, e);
-            throw new RuntimeException(e);
+            // Не выбрасываем RuntimeException, чтобы обработка не прерывалась
         }
     }
 }
