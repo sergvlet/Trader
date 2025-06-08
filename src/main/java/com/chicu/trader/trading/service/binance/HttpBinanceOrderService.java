@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/trading/service/binance/HttpBinanceOrderService.java
 package com.chicu.trader.trading.service.binance;
 
 import com.chicu.trader.bot.service.UserSettingsService;
@@ -25,12 +24,13 @@ public class HttpBinanceOrderService implements OrderService {
     private static final String TEST_REST = "https://testnet.binance.vision";
 
     private final UserSettingsService userSettingsService;
-    private final HttpClient          httpClient = HttpClient.newHttpClient();
+    private final HttpClient         httpClient = HttpClient.newHttpClient();
 
-    private String base(Long chatId) {
+    private String baseUrl(Long chatId) {
         boolean isTest = userSettingsService.isTestnet(chatId);
-        log.debug("HttpBinanceOrderService: base URL for chatId={} is {}", chatId, isTest ? TEST_REST : PROD_REST);
-        return isTest ? TEST_REST : PROD_REST;
+        String base = isTest ? TEST_REST : PROD_REST;
+        log.debug("HttpBinanceOrderService: base URL for chatId={} is {}", chatId, base);
+        return base;
     }
 
     private String apiKey(Long chatId) {
@@ -40,13 +40,14 @@ public class HttpBinanceOrderService implements OrderService {
     }
 
     private String secretKey(Long chatId) {
+        String secret = userSettingsService.getApiCredentials(chatId).getSecretKey();
         log.debug("HttpBinanceOrderService: retrieved secret key for chatId={}", chatId);
-        return userSettingsService.getApiCredentials(chatId).getSecretKey();
+        return secret;
     }
 
     @Override
-    public void placeMarketOrder(Long chatId, String symbol, double quantity) {
-        log.info("placeMarketOrder: инициируем рыночный ордер для chatId={}, symbol={}, quantity={}", chatId, symbol, quantity);
+    public void placeMarketOrder(Long chatId, String symbol, double quantity) throws BinanceOrderException {
+        log.info("placeMarketOrder ▶ {} MARKET {}", chatId, symbol);
         String path = "/api/v3/order";
         long ts = Instant.now().toEpochMilli();
 
@@ -57,43 +58,59 @@ public class HttpBinanceOrderService implements OrderService {
         params.put("quantity",  String.valueOf(quantity));
         params.put("timestamp", String.valueOf(ts));
 
-        log.debug("placeMarketOrder: параметры запроса для chatId={} : {}", chatId, params);
         sendSignedRequest(chatId, path, params);
     }
 
     @Override
-    public boolean placeOcoOrder(Long chatId, String symbol, double quantity, double stopPrice, double limitPrice) {
-        log.info("placeOcoOrder: инициируем OCO ордер для chatId={}, symbol={}, quantity={}, stopPrice={}, limitPrice={}",
-                chatId, symbol, quantity, stopPrice, limitPrice);
+    public boolean placeOcoOrder(Long chatId,
+                                 String symbol,
+                                 double quantity,
+                                 double stopPrice,
+                                 double limitPrice) throws BinanceOrderException {
+        log.info("placeOcoOrder ▶ {} OCO {} qty={} SL={} TP={}",
+                 chatId, symbol, quantity, stopPrice, limitPrice);
+
+        // Меняем путь на современный OCO-эндпоинт
         String path = "/api/v3/order/oco";
         long ts = Instant.now().toEpochMilli();
 
         Map<String,String> params = new LinkedHashMap<>();
-        params.put("symbol",    symbol.toUpperCase());
-        params.put("side",      "SELL");
-        params.put("quantity",  String.valueOf(quantity));
-        params.put("stopPrice", String.valueOf(stopPrice));
-        params.put("price",     String.valueOf(limitPrice));
-        params.put("timestamp", String.valueOf(ts));
+        params.put("symbol",               symbol.toUpperCase());
+        params.put("side",                 "SELL");
+        params.put("quantity",             String.valueOf(quantity));
+        params.put("price",                String.valueOf(limitPrice));
+        params.put("stopPrice",            String.valueOf(stopPrice));
+        params.put("stopLimitPrice",       String.valueOf(stopPrice));
+        params.put("stopLimitTimeInForce", "GTC");
 
-        log.debug("placeOcoOrder: параметры запроса для chatId={} : {}", chatId, params);
+        // Дополнительно можно задать свои clientOrderId, чтобы было проще отслеживать
+        String clientId = "oco_" + chatId + "_" + ts;
+        params.put("listClientOrderId",  clientId);
+        params.put("limitClientOrderId", clientId + "_L");
+        params.put("stopClientOrderId",  clientId + "_S");
+
+        params.put("timestamp",           String.valueOf(ts));
+
         sendSignedRequest(chatId, path, params);
         return true;
     }
 
-    private void sendSignedRequest(Long chatId, String path, Map<String,String> params) {
+    private String sendSignedRequest(Long chatId,
+                                     String path,
+                                     Map<String,String> params) throws BinanceOrderException {
         try {
-            // Собираем query-string
-            String queryString = params.entrySet().stream()
+            // 1) Собираем строку параметров
+            String qs = params.entrySet().stream()
                     .map(e -> e.getKey() + "=" + e.getValue())
                     .collect(Collectors.joining("&"));
 
-            // Подпись
-            String signature = HmacSHA256Signer.sign(queryString, secretKey(chatId));
-            String fullQS = queryString + "&signature=" + signature;
+            // 2) Подписываем
+            String signature = HmacSHA256Signer.sign(qs, secretKey(chatId));
+            String fullQs = qs + "&signature=" + signature;
 
-            String url = base(chatId) + path + "?" + fullQS;
-            log.debug("sendSignedRequest: полная ссылка для chatId={} : {}", chatId, url);
+            // 3) Формируем и отправляем POST-запрос
+            String url = baseUrl(chatId) + path + "?" + fullQs;
+            log.debug("sendSignedRequest ▶ URL={}", url);
 
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -101,20 +118,23 @@ public class HttpBinanceOrderService implements OrderService {
                     .POST(HttpRequest.BodyPublishers.noBody())
                     .build();
 
-            log.debug("sendSignedRequest: отправляем HTTP POST для chatId={} по пути {}", chatId, path);
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-
             int status = resp.statusCode();
             String body = resp.body();
+
             if (status >= 200 && status < 300) {
-                log.info("Binance order [{} {}] → {} {}", chatId, path, status, body);
+                log.info("Binance [{}] {} → {} {}", chatId, path, status, body);
+                return body;
             } else {
-                log.error("Binance request failed: HTTP {}, msg={}", status, body);
-                // Не выбрасываем исключение, просто логируем ошибку и продолжаем
+                log.error("Binance [{}] {} FAILED: {} {}", chatId, path, status, body);
+                throw new BinanceOrderException("Binance returned HTTP " + status + ": " + body);
             }
+
+        } catch (BinanceOrderException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("Error sending signed request to Binance for chatId={}", chatId, e);
-            // Не выбрасываем RuntimeException, чтобы обработка не прерывалась
+            log.error("Error in sendSignedRequest ▶ chatId={}", chatId, e);
+            throw new BinanceOrderException("Error sending request", e);
         }
     }
 }

@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/bot/service/UserSettingsService.java
 package com.chicu.trader.bot.service;
 
 import com.chicu.trader.bot.entity.User;
@@ -6,6 +5,9 @@ import com.chicu.trader.bot.entity.UserSettings;
 import com.chicu.trader.bot.repository.UserRepository;
 import com.chicu.trader.bot.repository.UserSettingsRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheConfig;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,13 +16,27 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@CacheConfig(cacheNames = "userSettings")
 public class UserSettingsService {
-
 
     private final UserSettingsRepository settingsRepo;
     private final UserRepository         userRepo;
 
+    /**
+     * Возвращает настройки пользователя (JOIN users).
+     * Кэшируется на 5 минут (см. конфиг CacheManager).
+     */
+    @Cacheable(key = "#chatId")
+    public UserSettings getSettings(Long chatId) {
+        return settingsRepo.findById(chatId)
+                .orElseThrow(() -> new IllegalStateException("UserSettings not found for chatId=" + chatId));
+    }
+
+    /**
+     * Меняет биржу и сбрасывает кэш настроек.
+     */
     @Transactional
+    @CacheEvict(key = "#chatId")
     public void setExchange(Long chatId, String exchange) {
         if (settingsRepo.existsById(chatId)) {
             settingsRepo.updateExchange(chatId, exchange);
@@ -39,13 +55,18 @@ public class UserSettingsService {
         }
     }
 
+    /**
+     * Возвращает текущую биржу без обращения к БД (из кэша).
+     */
     public String getExchange(Long chatId) {
-        return settingsRepo.findById(chatId)
-                .map(UserSettings::getExchange)
-                .orElse(null);
+        return getSettings(chatId).getExchange();
     }
 
+    /**
+     * Меняет режим (REAL/TESTNET) и сбрасывает кэш настроек.
+     */
     @Transactional
+    @CacheEvict(key = "#chatId")
     public void setMode(Long chatId, String mode) {
         if (settingsRepo.existsById(chatId)) {
             settingsRepo.updateMode(chatId, mode);
@@ -64,13 +85,18 @@ public class UserSettingsService {
         }
     }
 
+    /**
+     * Возвращает текущий режим без обращения к БД (из кэша).
+     */
     public String getMode(Long chatId) {
-        return settingsRepo.findById(chatId)
-                .map(UserSettings::getMode)
-                .orElse(null);
+        return Optional.ofNullable(getSettings(chatId).getMode()).orElse("REAL");
     }
 
+    /**
+     * Устанавливает API-ключ и сбрасывает кэш настроек.
+     */
     @Transactional
+    @CacheEvict(key = "#chatId")
     public void setApiKey(Long chatId, String apiKey) {
         if (!settingsRepo.existsById(chatId)) {
             User user = userRepo.findById(chatId)
@@ -83,16 +109,19 @@ public class UserSettingsService {
                     .user(user)
                     .build());
         }
-        settingsRepo.findById(chatId).ifPresent(s -> {
-            if ("REAL".equalsIgnoreCase(s.getMode())) {
-                settingsRepo.updateRealApiKey(chatId, apiKey);
-            } else {
-                settingsRepo.updateTestApiKey(chatId, apiKey);
-            }
-        });
+        UserSettings s = getSettings(chatId);
+        if (isTestnet(chatId)) {
+            settingsRepo.updateTestApiKey(chatId, apiKey);
+        } else {
+            settingsRepo.updateRealApiKey(chatId, apiKey);
+        }
     }
 
+    /**
+     * Устанавливает секретный ключ и сбрасывает кэш настроек.
+     */
     @Transactional
+    @CacheEvict(key = "#chatId")
     public void setSecretKey(Long chatId, String secretKey) {
         if (!settingsRepo.existsById(chatId)) {
             User user = userRepo.findById(chatId)
@@ -105,38 +134,42 @@ public class UserSettingsService {
                     .user(user)
                     .build());
         }
-        settingsRepo.findById(chatId).ifPresent(s -> {
-            if ("REAL".equalsIgnoreCase(s.getMode())) {
-                settingsRepo.updateRealSecretKey(chatId, secretKey);
-            } else {
-                settingsRepo.updateTestSecretKey(chatId, secretKey);
-            }
-        });
-    }
-
-    public boolean hasCredentials(Long chatId) {
-        return settingsRepo.findById(chatId)
-                .map(s -> s.hasCredentialsFor(s.getMode()))
-                .orElse(false);
+        UserSettings s = getSettings(chatId);
+        if (isTestnet(chatId)) {
+            settingsRepo.updateTestSecretKey(chatId, secretKey);
+        } else {
+            settingsRepo.updateRealSecretKey(chatId, secretKey);
+        }
     }
 
     /**
-     * Проверяет, что для текущего режима у пользователя заданы оба ключа,
-     * и при необходимости делает реальное подключение к API.
+     * Проверяет, что для текущего режима заданы оба ключа.
+     * Не обращается к БД (читается из кэша).
+     */
+    public boolean hasCredentials(Long chatId) {
+        UserSettings s = getSettings(chatId);
+        String mode = Optional.ofNullable(s.getMode()).orElse("REAL");
+        if (mode.toUpperCase().startsWith("TEST")) {
+            return Objects.nonNull(s.getTestApiKey()) && Objects.nonNull(s.getTestSecretKey());
+        } else {
+            return Objects.nonNull(s.getRealApiKey()) && Objects.nonNull(s.getRealSecretKey());
+        }
+    }
+
+    /**
+     * Тестовое соединение — пока просто проверяет наличие ключей.
      */
     public boolean testConnection(Long chatId) {
         return hasCredentials(chatId);
     }
 
-
     /**
-     * Возвращает ApiCredentials (apiKey + secretKey) для текущего режима пользователя.
+     * Возвращает ApiCredentials для текущего режима без повторных запросов к БД.
      */
     public ApiCredentials getApiCredentials(Long chatId) {
-        UserSettings s = settingsRepo.findById(chatId)
-                .orElseThrow(() -> new IllegalStateException("No settings for chatId=" + chatId));
+        UserSettings s = getSettings(chatId);
         String mode = Optional.ofNullable(s.getMode()).orElse("REAL");
-        if ("TESTNET".equalsIgnoreCase(mode)) {
+        if (mode.toUpperCase().startsWith("TEST")) {
             if (Objects.isNull(s.getTestApiKey()) || Objects.isNull(s.getTestSecretKey())) {
                 throw new IllegalStateException("Missing TESTNET credentials");
             }
@@ -150,13 +183,10 @@ public class UserSettingsService {
     }
 
     /**
-     * Возвращает true, если пользователь в режиме TESTNET.
+     * Возвращает true, если пользователь в режиме TESTNET, без лишних запросов к БД.
      */
     public boolean isTestnet(Long chatId) {
-        return "TESTNET".equalsIgnoreCase(
-                settingsRepo.findById(chatId)
-                        .map(UserSettings::getMode)
-                        .orElse("REAL")
-        );
+        String mode = Optional.ofNullable(getSettings(chatId).getMode()).orElse("REAL");
+        return mode.toUpperCase().startsWith("TEST");
     }
 }

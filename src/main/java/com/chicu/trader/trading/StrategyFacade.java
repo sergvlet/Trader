@@ -1,3 +1,4 @@
+// src/main/java/com/chicu/trader/trading/StrategyFacade.java
 package com.chicu.trader.trading;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
@@ -12,6 +13,7 @@ import com.chicu.trader.trading.repository.TradeLogRepository;
 import com.chicu.trader.trading.service.AccountService;
 import com.chicu.trader.trading.service.CandleService;
 import com.chicu.trader.trading.service.OrderService;
+import com.chicu.trader.trading.service.binance.BinanceExchangeInfoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -21,255 +23,212 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class StrategyFacade {
 
-    private final StrategyRegistry         registry;
-    private final AiTradingSettingsService settingsService;
-    private final CandleService            candleService;
-    private final AccountService           accountService;
-    private final OrderService             orderService;
-    private final TradeLogRepository       tradeLogRepository;
+    private static final ConcurrentMap<String, ReentrantLock> tradeLocks = new ConcurrentHashMap<>();
+
+    private final StrategyRegistry           registry;
+    private final AiTradingSettingsService   settingsService;
+    private final CandleService              candleService;
+    private final AccountService             accountService;
+    private final OrderService               orderService;
+    private final TradeLogRepository         tradeLogRepository;
+    private final BinanceExchangeInfoService exchangeInfoService;
 
     public void applyStrategies(Long chatId, List<ProfitablePair> pairs) {
         AiTradingSettings settings = settingsService.getOrCreate(chatId);
         TradeStrategy strat = registry.getByType(settings.getStrategy());
-        log.info("StrategyFacade ▶ для chatId={} выбрана стратегия={}", chatId, settings.getStrategy());
+        log.info("StrategyFacade ▶ chatId={} using strategy={}", chatId, settings.getStrategy());
 
+        Duration interval = parseDuration(settings.getTimeframe());
         for (ProfitablePair pair : pairs) {
             String symbol = pair.getSymbol();
-            log.info("StrategyFacade ▶ начинаем обработку пары symbol={} для chatId={}", symbol, chatId);
+            log.info("StrategyFacade ▶ processing symbol={} for chatId={}", symbol, chatId);
 
-            Duration interval = parseDuration(settings.getTimeframe());
             List<Candle> candles = candleService.history(symbol, interval, settings.getCachedCandlesLimit());
             if (candles == null || candles.isEmpty()) {
-                log.warn("StrategyFacade ▶ нет свечей для symbol={} chatId={}", symbol, chatId);
+                log.warn("StrategyFacade ▶ no candles for symbol={} chatId={}", symbol, chatId);
                 continue;
             }
 
-            log.debug("StrategyFacade ▶ получено {} свечей для symbol={} chatId={}", candles.size(), symbol, chatId);
-
             double lastClose = candles.get(candles.size() - 1).getClose();
             SignalType signal = strat.evaluate(candles, settings);
-            log.info("StrategyFacade ▶ сигнал стратегии для symbol={} chatId={} → {}", symbol, chatId, signal);
+            log.info("StrategyFacade ▶ signal for symbol={} chatId={} → {}", symbol, chatId, signal);
 
-            double currentPrice = lastClose;
             switch (signal) {
-                case BUY -> {
-                    log.info("StrategyFacade ▶ найден сигнал BUY для symbol={} chatId={} (price={})",
-                            symbol, chatId, currentPrice);
-                    enterTrade(chatId, symbol, currentPrice, settings, pair);
-                }
-                case SELL -> {
-                    log.info("StrategyFacade ▶ найден сигнал SELL для symbol={} chatId={} (price={})",
-                            symbol, chatId, currentPrice);
-                    exitAllTrades(chatId, symbol, currentPrice);
-                }
-                case HOLD -> {
-                    log.debug("StrategyFacade ▶ сигнал HOLD для symbol={} chatId={} (price={})",
-                            symbol, chatId, currentPrice);
-                }
+                case BUY -> enterTradeWithLock(chatId, symbol, lastClose, settings, pair);
+                case SELL -> exitAllTrades(chatId, symbol, lastClose);
+                case HOLD -> log.debug("StrategyFacade ▶ HOLD for symbol={} chatId={}", symbol, chatId);
             }
         }
     }
 
-    private void enterTrade(Long chatId,
-                            String symbol,
-                            double price,
-                            AiTradingSettings settings,
-                            ProfitablePair pair) {
+    private void enterTradeWithLock(Long chatId,
+                                    String symbol,
+                                    double price,
+                                    AiTradingSettings settings,
+                                    ProfitablePair pair) {
+        String lockKey = chatId + ":" + symbol;
+        ReentrantLock lock = tradeLocks.computeIfAbsent(lockKey, k -> new ReentrantLock());
+        if (!lock.tryLock()) {
+            log.warn("enterTrade ▶ another trade in progress for chatId={} symbol={}, skipping", chatId, symbol);
+            return;
+        }
+        try {
+            doEnterTrade(chatId, symbol, price, settings, pair);
+        } finally {
+            lock.unlock();
+            tradeLocks.remove(lockKey, lock);
+        }
+    }
 
+    private void doEnterTrade(Long chatId,
+                              String symbol,
+                              double entryPrice,
+                              AiTradingSettings settings,
+                              ProfitablePair pair) {
+
+        // 1) Определяем quoteAsset и баланс
+        String quoteAsset = detectQuoteAsset(symbol);
+        double freeBalance = accountService.getFreeBalance(chatId, quoteAsset);
+        log.debug("enterTrade ▶ freeBalance={} {}", freeBalance, quoteAsset);
+        if (freeBalance <= 0) {
+            log.warn("enterTrade ▶ no balance for {} (chatId={})", quoteAsset, chatId);
+            return;
+        }
+
+        // 2) Рассчитываем сумму для риска
         double riskPct = settings.getRiskThreshold() != null
                 ? settings.getRiskThreshold()
                 : 0.0;
-        log.debug("enterTrade ▶ chatId={}, symbol={}, riskPct={}", chatId, symbol, riskPct);
-
-        // 1) Определяем quoteAsset
-        String quoteAsset;
-        if (symbol.endsWith("USDT")) {
-            quoteAsset = "USDT";
-        } else if (symbol.endsWith("BUSD")) {
-            quoteAsset = "BUSD";
-        } else if (symbol.endsWith("BTC")) {
-            quoteAsset = "BTC";
-        } else if (symbol.endsWith("ETH")) {
-            quoteAsset = "ETH";
-        } else {
-            quoteAsset = symbol.replaceFirst("^[A-Z]+", "");
-        }
-
-        // 2) Узнаём свободный баланс quoteAsset
-        double quoteBalance = accountService.getFreeBalance(chatId, quoteAsset);
-        log.debug("enterTrade ▶ свободный баланс для chatId={} asset={} = {}", chatId, quoteAsset, quoteBalance);
-
-        // 3) Сколько тратим из quoteBalance
-        double amountToSpend = quoteBalance * (riskPct / 100.0);
-        if (amountToSpend <= 0) {
-            log.warn("enterTrade ▶ amountToSpend=0 (quoteBalance={} riskPct={}) для chatId={}, symbol={}",
-                    quoteBalance, riskPct, chatId, symbol);
+        BigDecimal amountToSpend = BigDecimal.valueOf(freeBalance)
+                .multiply(BigDecimal.valueOf(riskPct / 100.0));
+        if (amountToSpend.compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("enterTrade ▶ zero risk amount: freeBalance={} riskPct={}", freeBalance, riskPct);
             return;
         }
 
-        // 4) rawQty = amountToSpend / price
-        double rawQty = amountToSpend / price;
-        log.debug("enterTrade ▶ рассчитано rawQty = {}", rawQty);
+        // 3) Учитываем проскальзывание
+        double slipPct = settings.getSlippageTolerance() != null
+                ? settings.getSlippageTolerance()
+                : 0.0;
+        BigDecimal slipFactor = BigDecimal.valueOf(1.0 - slipPct / 100.0);
+        BigDecimal spendable = amountToSpend.multiply(slipFactor);
+        log.debug("enterTrade ▶ spendable after slippage {}%", slipPct);
 
-        // 5) Обрезаем qty до 3 знаков (DOWN)
-        double qty = roundQuantity(rawQty);
-        if (qty <= 0) {
-            log.warn("enterTrade ▶ qty после округления = 0 (rawQty={}) для chatId={}, symbol={}",
-                    rawQty, chatId, symbol);
+        // 4) Вычисляем qty = spendable / entryPrice, обрезаем по stepSize
+        BigDecimal rawQty = spendable.divide(BigDecimal.valueOf(entryPrice), 8, RoundingMode.DOWN);
+        BigDecimal stepSize = exchangeInfoService.getLotSizeStep(symbol);
+        BigDecimal qtyBd = rawQty.divide(stepSize, 0, RoundingMode.DOWN).multiply(stepSize);
+        if (qtyBd.compareTo(stepSize) < 0) {
+            log.warn("enterTrade ▶ qty < stepSize after truncation: rawQty={} stepSize={}", rawQty, stepSize);
             return;
         }
-        log.debug("enterTrade ▶ qty после truncate (3 знака) = {}", qty);
+        double qty = qtyBd.doubleValue();
+        log.info("enterTrade ▶ calculated qty={} (stepSize={})", qty, stepSize);
 
-        // 6) Рассчитываем “сырые” TP/SL на основе процентов
-        double tpPct = pair.getTakeProfitPct();
-        double slPct = pair.getStopLossPct();
-        log.debug("enterTrade ▶ tpPct={}, slPct={} для symbol={} chatId={}",
-                tpPct, slPct, symbol, chatId);
-
-        double rawTpPrice = (tpPct > 0)
-                ? price * (1 + tpPct / 100.0)
-                : price * (1 + riskPct / 100.0);
-        double rawSlPrice = (slPct > 0)
-                ? price * (1 - slPct / 100.0)
-                : price * (1 - riskPct / 100.0);
-
-        // 7) Обрезаем TP/SL до 2 знаков (DOWN)
-        double tpPrice = roundPrice(rawTpPrice);
-        double slPrice = roundPrice(rawSlPrice);
-        log.info("enterTrade ▶ рассчитываем TP={} SL={} для symbol={} chatId={}",
-                tpPrice, slPrice, symbol, chatId);
-
-        // --- Проверяем корректность отношений для OCO:
-        //    нужно, чтобы tpPrice > price > slPrice
-        if (!(tpPrice > price && price > slPrice)) {
-            log.error("enterTrade ▶ неверное соотношение цен для OCO — пропускаем OCO. price={}, slPrice={}, tpPrice={}",
-                    price, slPrice, tpPrice);
-            // Всё равно продолжаем вход (MARKET), но без OCO‐защиты
-        }
-
-        // === ШАГ 1: MARKET BUY ===
-        log.info("enterTrade ▶ пытаемся отправить рыночный ордер BUY chatId={} symbol={} qty={}",
-                chatId, symbol, qty);
+        // 5) Отправляем MARKET BUY
         try {
             orderService.placeMarketOrder(chatId, symbol, qty);
-            log.info("enterTrade ▶ MarketOrder (BUY) отправлен успешно chatId={} symbol={} qty={}",
-                    chatId, symbol, qty);
+            log.info("enterTrade ▶ Market BUY placed chatId={} symbol={} qty={}", chatId, symbol, qty);
         } catch (Exception e) {
-            log.error("enterTrade ▶ Binance вернул ошибку при MarketOrder (BUY) chatId={} symbol={} qty={}: {}",
-                    chatId, symbol, qty, e.getMessage(), e);
+            log.error("enterTrade ▶ Market order failed for chatId={} symbol={} qty={}: {}",
+                    chatId, symbol, qty, e.getMessage());
             return;
         }
 
-        // === ШАГ 2: OCO SELL (защита TP/SL) ===
-        log.info("enterTrade ▶ пытаемся отправить OCO-ордер SELL chatId={} symbol={} qty={} SL={} TP={}",
-                chatId, symbol, qty, slPrice, tpPrice);
-        try {
-            orderService.placeOcoOrder(chatId, symbol, qty, slPrice, tpPrice);
-            log.info("enterTrade ▶ OCO-ордер (SELL) отправлен успешно chatId={} symbol={} qty={} SL={} TP={}",
-                    chatId, symbol, qty, slPrice, tpPrice);
-        } catch (Exception e) {
-            log.error("enterTrade ▶ Binance вернул ошибку при OCO-ордере SELL chatId={} symbol={} qty={} SL={} TP={}: {}",
-                    chatId, symbol, qty, slPrice, tpPrice, e.getMessage(), e);
-            // Сделка уже открыта, но без OCO‐защиты
+        // 6) Рассчитываем TP/SL и обрезаем по tickSize
+        BigDecimal rawTp = BigDecimal.valueOf(entryPrice)
+                .multiply(BigDecimal.valueOf(1.0 + riskPct / 100.0));
+        BigDecimal rawSl = BigDecimal.valueOf(entryPrice)
+                .multiply(BigDecimal.valueOf(1.0 - riskPct / 100.0));
+        BigDecimal tickSize = exchangeInfoService.getPriceTickSize(symbol);
+        BigDecimal tpBd = rawTp.divide(tickSize, 0, RoundingMode.DOWN).multiply(tickSize);
+        BigDecimal slBd = rawSl.divide(tickSize, 0, RoundingMode.DOWN).multiply(tickSize);
+        double tpPrice = tpBd.doubleValue();
+        double slPrice = slBd.doubleValue();
+        log.info("enterTrade ▶ TP={} SL={}", tpPrice, slPrice);
+
+        // 7) Отправляем OCO-SELL
+        if (tpPrice > entryPrice && entryPrice > slPrice) {
+            try {
+                orderService.placeOcoOrder(chatId, symbol, qty, slPrice, tpPrice);
+                log.info("enterTrade ▶ OCO SELL placed chatId={} symbol={} qty={} SL={} TP={}",
+                        chatId, symbol, qty, slPrice, tpPrice);
+            } catch (Exception e) {
+                log.warn("enterTrade ▶ OCO order failed for chatId={} symbol={} qty={} SL={} TP={}: {}",
+                        chatId, symbol, qty, slPrice, tpPrice, e.getMessage());
+            }
+        } else {
+            log.error("enterTrade ▶ invalid OCO prices: entry={} SL={} TP={}", entryPrice, slPrice, tpPrice);
         }
 
-        // === ШАГ 3: сохраняем запись в TradeLog ===
+        // 8) Сохраняем запись
         TradeLog entry = TradeLog.builder()
                 .userChatId(chatId)
                 .symbol(symbol)
                 .entryTime(Instant.now())
-                .entryPrice(price)
+                .entryPrice(entryPrice)
+                .quantity(qty)
                 .takeProfitPrice(tpPrice)
                 .stopLossPrice(slPrice)
-                .quantity(qty)
                 .isClosed(false)
                 .build();
         tradeLogRepository.save(entry);
-
-        log.info("enterTrade ▶ Entered trade chatId={} symbol={} qty={} entryPrice={} TP={} SL={}",
-                chatId, symbol, qty, price, tpPrice, slPrice);
+        log.info("enterTrade ▶ trade recorded chatId={} symbol={} qty={} entryPrice={}",
+                chatId, symbol, qty, entryPrice);
     }
 
     private void exitAllTrades(Long chatId, String symbol, double exitPrice) {
-        log.debug("exitAllTrades ▶ chatId={}, symbol={}, exitPrice={}", chatId, symbol, exitPrice);
-
-        List<TradeLog> openTrades = tradeLogRepository
-                .findAllByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
-        log.debug("exitAllTrades ▶ найдено {} открытых сделок для symbol={} chatId={}",
-                openTrades.size(), symbol, chatId);
-
-        for (TradeLog open : openTrades) {
-            double entryPrice = open.getEntryPrice();
-            double qty = open.getQuantity();
-            double tp = open.getTakeProfitPrice();
-            double sl = open.getStopLossPrice();
-
-            boolean hitTp = (tp > 0) && (exitPrice >= tp);
-            boolean hitSl = (sl > 0) && (exitPrice <= sl);
-            if (!hitTp && !hitSl) {
-                log.info("exitAllTrades ▶ force-close (SELL-сигнал) для chatId={} symbol={}", chatId, symbol);
-            }
-
-            log.info("exitAllTrades ▶ пытаемся отправить рыночный ордер SELL chatId={} symbol={} qty={}",
-                    chatId, symbol, qty);
+        List<TradeLog> openTrades =
+                tradeLogRepository.findAllByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
+        for (TradeLog t : openTrades) {
+            double qty = t.getQuantity();
             try {
                 orderService.placeMarketOrder(chatId, symbol, qty);
-                log.info("exitAllTrades ▶ MarketOrder (SELL) отправлен успешно chatId={} symbol={} qty={}",
+                log.info("exitAllTrades ▶ Market SELL placed chatId={} symbol={} qty={}",
                         chatId, symbol, qty);
             } catch (Exception e) {
-                log.error("exitAllTrades ▶ Binance вернул ошибку при MarketOrder (SELL) chatId={} symbol={} qty={}: {}",
-                        chatId, symbol, qty, e.getMessage(), e);
-                // продолжаем закрывать остальные
+                log.error("exitAllTrades ▶ sell failed for chatId={} symbol={} qty={}: {}",
+                        chatId, symbol, qty, e.getMessage());
             }
-
-            open.setExitTime(Instant.now());
-            open.setClosed(true);
-            open.setExitPrice(exitPrice);
-            open.setPnl((exitPrice - entryPrice) * qty);
-            tradeLogRepository.save(open);
-
-            String reason = hitTp ? "TP" : (hitSl ? "SL" : "SELL_SIGNAL");
-            log.info("exitAllTrades ▶ Exited trade chatId={} symbol={} qty={} exitPrice={} PnL={} reason={}",
-                    chatId, symbol, qty, open.getExitPrice(), open.getPnl(), reason);
+            t.setExitTime(Instant.now());
+            t.setExitPrice(exitPrice);
+            t.setPnl((exitPrice - t.getEntryPrice()) * qty);
+            t.setClosed(true);
+            tradeLogRepository.save(t);
+            log.info("exitAllTrades ▶ trade closed chatId={} symbol={} qty={} exitPrice={} PnL={}",
+                    chatId, symbol, qty, exitPrice, t.getPnl());
         }
     }
 
-    /** Обрезает qty до 3 знаков после запятой (RoundingMode.DOWN). */
-    private double roundQuantity(double qty) {
-        BigDecimal bd = new BigDecimal(qty);
-        return bd.setScale(3, RoundingMode.DOWN).doubleValue();
-    }
-
-    /** Обрезает price до 2 знаков после запятой (RoundingMode.DOWN). */
-    private double roundPrice(double price) {
-        BigDecimal bd = new BigDecimal(price);
-        return bd.setScale(2, RoundingMode.DOWN).doubleValue();
+    private String detectQuoteAsset(String symbol) {
+        if (symbol.endsWith("USDT")) return "USDT";
+        if (symbol.endsWith("BUSD")) return "BUSD";
+        if (symbol.endsWith("BTC"))  return "BTC";
+        if (symbol.endsWith("ETH"))  return "ETH";
+        return symbol.replaceFirst("^[A-Z]+", "");
     }
 
     private Duration parseDuration(String timeframe) {
         if (timeframe == null || timeframe.isEmpty()) {
             return Duration.ofMinutes(1);
         }
-        String tf = timeframe.trim().toLowerCase();
         try {
-            if (tf.endsWith("m")) {
-                int minutes = Integer.parseInt(tf.substring(0, tf.length() - 1));
-                return Duration.ofMinutes(minutes);
-            } else if (tf.endsWith("h")) {
-                int hours = Integer.parseInt(tf.substring(0, tf.length() - 1));
-                return Duration.ofHours(hours);
-            } else if (tf.endsWith("d")) {
-                int days = Integer.parseInt(tf.substring(0, tf.length() - 1));
-                return Duration.ofDays(days);
-            }
+            timeframe = timeframe.trim().toLowerCase();
+            if (timeframe.endsWith("m")) return Duration.ofMinutes(Integer.parseInt(timeframe.replace("m", "")));
+            if (timeframe.endsWith("h")) return Duration.ofHours(Integer.parseInt(timeframe.replace("h", "")));
+            if (timeframe.endsWith("d")) return Duration.ofDays(Integer.parseInt(timeframe.replace("d", "")));
         } catch (NumberFormatException e) {
-            log.warn("parseDuration ▶ не удалось распарсить timeframe='{}', используем 1m", timeframe);
+            log.warn("parseDuration ▶ invalid timeframe='{}', defaulting to 1m", timeframe);
         }
         return Duration.ofMinutes(1);
     }
