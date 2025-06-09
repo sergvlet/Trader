@@ -22,5 +22,10 @@ public interface TradeLogRepository extends JpaRepository<TradeLog, Long> {
     );
     Optional<TradeLog> findTopByUserChatIdOrderByEntryTimeDesc(Long chatId);
 
+    // Проверка на наличие открытой сделки для chatId и символа
+    boolean existsByUserChatIdAndSymbolAndIsClosedFalse(Long userChatId, String symbol);
+
+
+    List<TradeLog> findAllByIsClosedFalse();
 
 }

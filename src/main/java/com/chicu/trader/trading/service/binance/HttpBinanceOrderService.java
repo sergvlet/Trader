@@ -24,7 +24,7 @@ public class HttpBinanceOrderService implements OrderService {
     private static final String TEST_REST = "https://testnet.binance.vision";
 
     private final UserSettingsService userSettingsService;
-    private final HttpClient         httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient = HttpClient.newHttpClient();
 
     private String baseUrl(Long chatId) {
         boolean isTest = userSettingsService.isTestnet(chatId);
@@ -52,10 +52,10 @@ public class HttpBinanceOrderService implements OrderService {
         long ts = Instant.now().toEpochMilli();
 
         Map<String,String> params = new LinkedHashMap<>();
-        params.put("symbol",    symbol.toUpperCase());
-        params.put("side",      "BUY");
-        params.put("type",      "MARKET");
-        params.put("quantity",  String.valueOf(quantity));
+        params.put("symbol", symbol.toUpperCase());
+        params.put("side", "BUY");
+        params.put("type", "MARKET");
+        params.put("quantity", String.valueOf(quantity));
         params.put("timestamp", String.valueOf(ts));
 
         sendSignedRequest(chatId, path, params);
@@ -68,11 +68,11 @@ public class HttpBinanceOrderService implements OrderService {
                                  double stopPrice,
                                  double limitPrice) throws BinanceOrderException {
         log.info("placeOcoOrder ▶ {} OCO {} qty={} SL={} TP={}",
-                 chatId, symbol, quantity, stopPrice, limitPrice);
+                chatId, symbol, quantity, stopPrice, limitPrice);
+        String path = "/api/v3/order/oco";  // <-- ИСПРАВЛЕНО
 
-        // Меняем путь на современный OCO-эндпоинт
-        String path = "/api/v3/order/oco";
         long ts = Instant.now().toEpochMilli();
+        String clientId = "oco_" + chatId + "_" + ts;
 
         Map<String,String> params = new LinkedHashMap<>();
         params.put("symbol",               symbol.toUpperCase());
@@ -82,41 +82,34 @@ public class HttpBinanceOrderService implements OrderService {
         params.put("stopPrice",            String.valueOf(stopPrice));
         params.put("stopLimitPrice",       String.valueOf(stopPrice));
         params.put("stopLimitTimeInForce", "GTC");
-
-        // Дополнительно можно задать свои clientOrderId, чтобы было проще отслеживать
-        String clientId = "oco_" + chatId + "_" + ts;
-        params.put("listClientOrderId",  clientId);
-        params.put("limitClientOrderId", clientId + "_L");
-        params.put("stopClientOrderId",  clientId + "_S");
-
-        params.put("timestamp",           String.valueOf(ts));
+        params.put("listClientOrderId",    clientId);
+        params.put("limitClientOrderId",   clientId + "_L");
+        params.put("stopClientOrderId",    clientId + "_S");
+        params.put("timestamp",            String.valueOf(ts));
 
         sendSignedRequest(chatId, path, params);
         return true;
     }
 
-    private String sendSignedRequest(Long chatId,
-                                     String path,
-                                     Map<String,String> params) throws BinanceOrderException {
-        try {
-            // 1) Собираем строку параметров
-            String qs = params.entrySet().stream()
-                    .map(e -> e.getKey() + "=" + e.getValue())
-                    .collect(Collectors.joining("&"));
 
-            // 2) Подписываем
+
+    private String sendSignedRequest(Long chatId, String path, Map<String,String> params) throws BinanceOrderException {
+        try {
+            String qs = params.entrySet().stream()
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .collect(Collectors.joining("&"));
+
             String signature = HmacSHA256Signer.sign(qs, secretKey(chatId));
             String fullQs = qs + "&signature=" + signature;
 
-            // 3) Формируем и отправляем POST-запрос
             String url = baseUrl(chatId) + path + "?" + fullQs;
             log.debug("sendSignedRequest ▶ URL={}", url);
 
             HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("X-MBX-APIKEY", apiKey(chatId))
-                    .POST(HttpRequest.BodyPublishers.noBody())
-                    .build();
+                .uri(URI.create(url))
+                .header("X-MBX-APIKEY", apiKey(chatId))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
 
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
             int status = resp.statusCode();
