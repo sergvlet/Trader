@@ -1,106 +1,56 @@
-// src/main/java/com/chicu/trader/trading/service/binance/BinanceExchangeInfoService.java
 package com.chicu.trader.trading.service.binance;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PostConstruct;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
+import com.chicu.trader.trading.service.binance.client.BinanceRestClient;
+import com.chicu.trader.trading.service.binance.client.BinanceRestClientFactory;
+import com.chicu.trader.trading.service.binance.client.model.ExchangeInfo;
+import com.chicu.trader.trading.service.binance.client.model.SymbolInfo;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.List;
+import java.util.stream.Collectors;
 
-/**
- * Загружает /api/v3/exchangeInfo один раз при старте
- * и кеширует tickSize и stepSize для всех символов.
- */
-@Slf4j
 @Service
+@RequiredArgsConstructor
 public class BinanceExchangeInfoService {
 
-    private static final String EXCHANGE_INFO_URL = "https://api.binance.com/api/v3/exchangeInfo";
+    private final BinanceRestClientFactory clientFactory;
+    private volatile List<SymbolInfo> cachedSymbols;
 
-    private final HttpClient httpClient = HttpClient.newHttpClient();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    public synchronized void refresh() {
+        BinanceRestClient client = clientFactory.getPublicClient();
+        ExchangeInfo exchangeInfo = client.getExchangeInfo();
+        cachedSymbols = exchangeInfo.getSymbols();
+    }
 
-    /** Шаги лота (LOT_SIZE.stepSize) для каждого символа */
-    @Getter
-    private final Map<String, BigDecimal> lotSizeSteps = new ConcurrentHashMap<>();
-
-    /** Шаги цены (PRICE_FILTER.tickSize) для каждого символа */
-    @Getter
-    private final Map<String, BigDecimal> priceTickSizes = new ConcurrentHashMap<>();
-
-    @PostConstruct
-    public void init() {
-        log.info("Loading Binance exchangeInfo from {}", EXCHANGE_INFO_URL);
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(EXCHANGE_INFO_URL))
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() / 100 != 2) {
-                throw new RuntimeException("Failed to load exchangeInfo, HTTP status: " + response.statusCode());
-            }
-
-            JsonNode root = objectMapper.readTree(response.body());
-            JsonNode symbols = root.path("symbols");
-            if (!symbols.isArray()) {
-                throw new RuntimeException("Unexpected exchangeInfo format: 'symbols' is not an array");
-            }
-
-            for (JsonNode symbolNode : symbols) {
-                String symbol = symbolNode.path("symbol").asText();
-                JsonNode filters = symbolNode.path("filters");
-                if (!filters.isArray()) continue;
-
-                for (JsonNode filter : filters) {
-                    String type = filter.path("filterType").asText();
-                    switch (type) {
-                        case "LOT_SIZE":
-                            String stepSize = filter.path("stepSize").asText();
-                            lotSizeSteps.put(symbol, new BigDecimal(stepSize));
-                            break;
-                        case "PRICE_FILTER":
-                            String tickSize = filter.path("tickSize").asText();
-                            priceTickSizes.put(symbol, new BigDecimal(tickSize));
-                            break;
-                        default:
-                            // остальные фильтры игнорируем
-                    }
-                }
-            }
-
-            log.info("Loaded exchangeInfo: {} symbols, lotSizeSteps={}, priceTickSizes={}",
-                    lotSizeSteps.size(), lotSizeSteps.size(), priceTickSizes.size());
-
-        } catch (Exception e) {
-            log.error("Failed to load or parse Binance exchangeInfo", e);
-            throw new RuntimeException("Could not initialize BinanceExchangeInfoService", e);
+    private List<SymbolInfo> getSymbols() {
+        if (cachedSymbols == null) {
+            refresh();
         }
+        return cachedSymbols;
     }
 
-    /**
-     * Возвращает шаг лота (stepSize) для указанного символа.
-     * Если символ неизвестен — возвращает 1.
-     */
+    public List<String> getAllSymbols() {
+        return getSymbols().stream()
+                .map(SymbolInfo::getSymbol)
+                .filter(symbol -> symbol.endsWith("USDT"))
+                .collect(Collectors.toList());
+    }
+
     public BigDecimal getLotSizeStep(String symbol) {
-        return lotSizeSteps.getOrDefault(symbol, BigDecimal.ONE);
+        return getSymbols().stream()
+                .filter(s -> s.getSymbol().equals(symbol))
+                .map(SymbolInfo::getLotSizeStep)
+                .findFirst()
+                .orElse(BigDecimal.valueOf(0.000001));
     }
 
-    /**
-     * Возвращает шаг цены (tickSize) для указанного символа.
-     * Если символ неизвестен — возвращает 1.
-     */
     public BigDecimal getPriceTickSize(String symbol) {
-        return priceTickSizes.getOrDefault(symbol, BigDecimal.ONE);
+        return getSymbols().stream()
+                .filter(s -> s.getSymbol().equals(symbol))
+                .map(SymbolInfo::getPriceTickSize)
+                .findFirst()
+                .orElse(BigDecimal.valueOf(0.000001));
     }
 }

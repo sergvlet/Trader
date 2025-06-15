@@ -31,17 +31,4 @@ public class PriceService {
             return null;
         }
     }
-
-    // Метод без chatId (для старых вызовов, например в тестах или при отсутствии режима)
-    public BigDecimal getPrice(String symbol) {
-        try {
-            String url = "https://api.binance.com/api/v3/ticker/price?symbol=" + symbol;
-            Map<?, ?> response = restTemplate.getForObject(url, Map.class);
-            if (response == null || !response.containsKey("price")) return null;
-            return new BigDecimal((String) response.get("price"));
-        } catch (Exception e) {
-            log.error("❌ Error fetching price for {}: {}", symbol, e.getMessage());
-            return null;
-        }
-    }
 }

@@ -189,4 +189,8 @@ public class UserSettingsService {
         String mode = Optional.ofNullable(getSettings(chatId).getMode()).orElse("REAL");
         return mode.toUpperCase().startsWith("TEST");
     }
+    public UserSettings getOrThrow(Long chatId) {
+        return settingsRepo.findById(chatId)
+                .orElseThrow(() -> new IllegalStateException("UserSettings not found for chatId=" + chatId));
+    }
 }

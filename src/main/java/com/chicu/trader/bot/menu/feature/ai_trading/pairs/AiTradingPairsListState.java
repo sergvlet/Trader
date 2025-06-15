@@ -2,7 +2,7 @@ package com.chicu.trader.bot.menu.feature.ai_trading.pairs;
 
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
-import com.chicu.trader.trading.TradingExecutor;
+import com.chicu.trader.trading.executor.TradingExecutor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -71,7 +71,6 @@ public class AiTradingPairsListState implements MenuState {
         if (data.startsWith("pair_select:")) {
             String sym = data.substring("pair_select:".length());
             settingsService.updateSymbols(chatId, sym);
-            tradingExecutor.updateExecutor(chatId, List.of(sym)); // ← обновление
             return "ai_trading_settings";
         }
 

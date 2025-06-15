@@ -57,7 +57,7 @@ public class RsiEmaRetrainer implements StrategyRetrainer {
         for (String symbol : symbols) {
             try {
                 int candleCount = config.getTakeProfitWindow() + 100;
-                List<Candle> candles = candleService.history(symbol, Duration.ofHours(1), candleCount);
+                List<Candle> candles = candleService.loadHistory(symbol, Duration.ofHours(1), candleCount);
                 if (candles.size() < 100) continue;
 
                 RsiEmaStrategySettings best = findBestParams(chatId, candles, config);

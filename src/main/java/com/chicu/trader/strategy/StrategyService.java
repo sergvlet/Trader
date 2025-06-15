@@ -18,7 +18,7 @@ public class StrategyService {
             List<Candle> candles,
             AiTradingSettings settings
     ) {
-        TradeStrategy strategy = registry.getByType(type);
+        TradeStrategy strategy = registry.getStrategy(type);
 
         SignalType localSignal = strategy.evaluate(candles, settings);
 

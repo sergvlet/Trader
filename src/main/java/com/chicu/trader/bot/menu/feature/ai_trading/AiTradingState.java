@@ -1,13 +1,12 @@
-// src/main/java/com/chicu/trader/bot/menu/feature/ai_trading/AiTradingState.java
 package com.chicu.trader.bot.menu.feature.ai_trading;
 
+import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.menu.core.MenuService;
 import com.chicu.trader.bot.menu.core.MenuState;
-import com.chicu.trader.bot.service.AiTradingService;
-import com.chicu.trader.trading.TradingExecutor;
-import com.chicu.trader.trading.service.binance.HttpBinanceWebSocketService;
-import com.chicu.trader.model.ProfitablePair;
-import com.chicu.trader.repository.ProfitablePairRepository;
+import com.chicu.trader.bot.service.AiTradingSettingsService;
+import com.chicu.trader.trading.executor.TradingExecutor;
+import com.chicu.trader.trading.entity.ProfitablePair;
+import com.chicu.trader.trading.repository.ProfitablePairRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -22,9 +21,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AiTradingState implements MenuState {
 
-    private final AiTradingService                 aiService;
-    private final ProfitablePairRepository         pairRepo;
-    private final HttpBinanceWebSocketService      webSocketService;
+    private final AiTradingSettingsService settingsService;
+    private final ProfitablePairRepository pairRepo;
     private final TradingExecutor tradingExecutor;
 
     @Override
@@ -34,68 +32,58 @@ public class AiTradingState implements MenuState {
 
     @Override
     public SendMessage render(Long chatId) {
-        boolean running = aiService.isTradingEnabled(chatId);
+        AiTradingSettings settings = settingsService.getOrCreate(chatId);
+        boolean running =settings.getIsRunning();
+
         String statusLine = running
-            ? "▶️ *Торговля запущена!*"
-            : "❌ *Торговля остановлена*";
+                ? "▶️ *Торговля запущена!*"
+                : "❌ *Торговля остановлена*";
 
         List<ProfitablePair> pairs = pairRepo.findByUserChatIdAndActiveTrue(chatId);
         String pairsLine = pairs.isEmpty()
-            ? "_Нет активных пар_"
-            : "_Пары_: " + pairs.stream()
-                                 .map(ProfitablePair::getSymbol)
-                                 .collect(Collectors.joining(", "));
-
-        String lastEvt = aiService.getLastEvent(chatId);
-        String lastLine = (lastEvt == null || lastEvt.isBlank())
-            ? "_Последнее событие: нет данных_"
-            : "*Последнее событие:* " + lastEvt;
+                ? "_Нет активных пар_"
+                : "_Пары_: " + pairs.stream().map(ProfitablePair::getSymbol).collect(Collectors.joining(", "));
 
         String text = String.join("\n",
-            "*AI-торговля*",
-            statusLine,
-            pairsLine,
-            lastLine,
-            "",
-            "Выберите действие:"
+                "*AI-торговля*",
+                statusLine,
+                pairsLine,
+                "",
+                "Выберите действие:"
         );
 
         InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder()
-            .keyboard(List.of(
-                List.of(
-                    InlineKeyboardButton.builder()
-                        .text(running ? "▶️ Запустить снова" : "▶️ Начать торговлю")
-                        .callbackData("ai_trading:start")
-                        .build(),
-                    InlineKeyboardButton.builder()
-                        .text(running ? "⏹️ Остановить торговлю" : "⏹️ Остановлена")
-                        .callbackData("ai_trading:stop")
-                        .build()
-                ),
-                List.of(
-                    InlineKeyboardButton.builder()
-                        .text("⚙️ Настройки")
-                        .callbackData("ai_trading:settings")
-                        .build(),
-                    InlineKeyboardButton.builder()
-                        .text("📊 Статистика")
-                        .callbackData("ai_trading:statistics")
-                        .build()
-                ),
-                List.of(
-                    InlineKeyboardButton.builder()
-                        .text("📋 Ордера")
-                        .callbackData("ai_trading:orders")
-                        .build()
-                ),
-                List.of(
-                    InlineKeyboardButton.builder()
-                        .text("‹ Назад")
-                        .callbackData(MenuService.BACK)
-                        .build()
-                )
-            ))
-            .build();
+                .keyboard(List.of(
+                        List.of(
+                                InlineKeyboardButton.builder()
+                                        .text(running ? "⏹️ Остановить торговлю" : "▶️ Начать торговлю")
+                                        .callbackData(running ? "ai_trading:stop" : "ai_trading:start")
+                                        .build()
+                        ),
+                        List.of(
+                                InlineKeyboardButton.builder()
+                                        .text("⚙️ Настройки")
+                                        .callbackData("ai_trading:settings")
+                                        .build(),
+                                InlineKeyboardButton.builder()
+                                        .text("📊 Статистика")
+                                        .callbackData("ai_trading:statistics")
+                                        .build()
+                        ),
+                        List.of(
+                                InlineKeyboardButton.builder()
+                                        .text("📋 Ордера")
+                                        .callbackData("ai_trading:orders")
+                                        .build()
+                        ),
+                        List.of(
+                                InlineKeyboardButton.builder()
+                                        .text("‹ Назад")
+                                        .callbackData(MenuService.BACK)
+                                        .build()
+                        )
+                ))
+                .build();
 
         return SendMessage.builder()
                 .chatId(chatId.toString())
@@ -107,32 +95,28 @@ public class AiTradingState implements MenuState {
 
     @Override
     public String handleInput(Update update) {
-        if (!update.hasCallbackQuery()) {
-            return name();
-        }
+        if (!update.hasCallbackQuery()) return name();
+
         Long chatId = update.getCallbackQuery().getMessage().getChatId();
         String data = update.getCallbackQuery().getData();
 
         switch (data) {
             case "ai_trading:start" -> {
-                aiService.enableTrading(chatId);
-                List<String> symbols = pairRepo.findByUserChatIdAndActiveTrue(chatId)
-                        .stream()
-                        .map(ProfitablePair::getSymbol)
-                        .collect(Collectors.toList());
-                tradingExecutor.startExecutor(chatId, symbols);
+                settingsService.setRunning(chatId, true);
+                tradingExecutor.startSingle(chatId);
+
                 return name();
             }
             case "ai_trading:stop" -> {
-                aiService.disableTrading(chatId);
-                tradingExecutor.stopExecutor();
+                settingsService.setRunning(chatId, false);
+                tradingExecutor.stopSingle(chatId);
                 return name();
             }
-            case "ai_trading:settings"    -> { return "ai_trading_settings"; }
-            case "ai_trading:statistics"  -> { return "ai_trading_statistics"; }
-            case "ai_trading:orders"      -> { return "ai_trading_orders"; }
-            case MenuService.BACK         -> { return MenuService.BACK; }
-            default                       -> { return name(); }
+            case "ai_trading:settings" -> { return "ai_trading_settings"; }
+            case "ai_trading:statistics" -> { return "ai_trading_statistics"; }
+            case "ai_trading:orders" -> { return "ai_trading_orders"; }
+            case MenuService.BACK -> { return MenuService.BACK; }
+            default -> { return name(); }
         }
     }
 }

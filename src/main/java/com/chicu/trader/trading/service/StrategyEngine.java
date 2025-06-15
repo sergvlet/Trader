@@ -32,7 +32,7 @@ public class StrategyEngine {
 
         log.info("Запускаем стратегию {} для chatId={}", strategyType, chatId);
 
-        TradeStrategy strat = registry.getByType(strategyType);
+        TradeStrategy strat = registry.getStrategy(strategyType);
 
         // Метод evaluate() теперь должен возвращать SignalType напрямую
         SignalType signal = strat.evaluate(candles, settings);

@@ -95,7 +95,7 @@ public class AiTradingRiskState implements MenuState {
             case "risk_inc"       -> risk = risk + 1.0;
             case "risk_dec"       -> risk = Math.max(0.1, risk - 1.0);
             case "risk_default"   -> {
-                settingsService.resetRiskDefaults(chatId);
+                settingsService.resetRiskThresholdDefaults(chatId);
                 return name();
             }
             case "risk_save"      -> {

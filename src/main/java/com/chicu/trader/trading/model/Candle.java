@@ -2,12 +2,14 @@
 package com.chicu.trader.trading.model;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
  * Данные одной свечи (клина) с биржи.
  */
+@Builder
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

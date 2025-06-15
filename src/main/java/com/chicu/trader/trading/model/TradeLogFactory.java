@@ -1,8 +1,11 @@
 // src/main/java/com/chicu/trader/trading/model/TradeLogFactory.java
 package com.chicu.trader.trading.model;
 
-import com.chicu.trader.model.TradeLog;
+
 import com.chicu.trader.trading.context.StrategyContext;
+import com.chicu.trader.trading.entity.TradeLog;
+
+import java.math.BigDecimal;
 import java.time.Instant;
 
 public class TradeLogFactory {
@@ -20,8 +23,8 @@ public class TradeLogFactory {
                 .symbol(ctx.getSymbol())
                 .entryTime(Instant.ofEpochMilli(ctx.getCandle().getCloseTime()))
                 .entryPrice(ctx.getPrice())
-                .takeProfitPrice(ctx.getTpPrice())
-                .stopLossPrice(ctx.getSlPrice())
+                .takeProfitPrice(BigDecimal.valueOf(ctx.getTpPrice()))
+                .stopLossPrice(BigDecimal.valueOf(ctx.getSlPrice()))
                 .isClosed(false)
                 .build();
     }

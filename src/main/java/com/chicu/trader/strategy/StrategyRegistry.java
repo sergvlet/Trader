@@ -1,40 +1,37 @@
 package com.chicu.trader.strategy;
 
+import com.chicu.trader.strategy.ml.MlModelStrategy;
+import com.chicu.trader.strategy.rsiema.RsiEmaStrategy;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.EnumMap;
 import java.util.Map;
-import java.util.stream.Collectors;
 
-/**
- * Хранит все TradeStrategy-биты, доступные в контексте Spring.
- * Маппит тип StrategyType → соответствующий бин.
- */
 @Component
 @RequiredArgsConstructor
 public class StrategyRegistry {
 
-    private final Map<String, TradeStrategy> strategiesByName;
+    private final MlModelStrategy mlModelStrategy;
+    private final RsiEmaStrategy rsiEmaStrategy;
+
+    private final Map<StrategyType, TradeStrategy> registry = new EnumMap<>(StrategyType.class);
 
     /**
-     * Spring автоматически соберёт в Map все бины, реализующие TradeStrategy,
-     * где ключ в Map – это beanName (по умолчанию «rsiEmaStrategy» или «mlModelStrategy» и т. д.).
-     * Мы просто преобразуем из beanName → TradeStrategy в StrategyType → TradeStrategy.
+     * Инициализация стратегий при старте Spring
      */
-    public TradeStrategy getByType(StrategyType type) {
-        // Перебираем все TradeStrategy-бены, ищем тот, чей getType() совпадает с type
-        return strategiesByName.values().stream()
-                .filter(s -> s.getType() == type)
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Strategy not found for type: " + type));
+    @PostConstruct
+    public void init() {
+        registry.put(StrategyType.ML_MODEL, mlModelStrategy);
+        registry.put(StrategyType.RSI_EMA, rsiEmaStrategy);
     }
 
-    /**
-     * Можно вернуть сразу Map<StrategyType, TradeStrategy>, если нужно.
-     */
-    public Map<StrategyType, TradeStrategy> getMap() {
-        return strategiesByName.values().stream()
-                .collect(Collectors.toMap(TradeStrategy::getType, s -> s));
+    public TradeStrategy getStrategy(StrategyType type) {
+        TradeStrategy strategy = registry.get(type);
+        if (strategy == null) {
+            throw new IllegalArgumentException("Strategy not registered: " + type);
+        }
+        return strategy;
     }
 }
