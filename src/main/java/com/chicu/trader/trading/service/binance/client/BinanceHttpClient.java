@@ -23,73 +23,75 @@ public class BinanceHttpClient {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // Эти три поля будут установлены конструктором фабрики:
     private String apiKey;
     private String secretKey;
     private String baseUrl;
 
-    /**
-     * Дефолтный конструктор — инициализирует RestTemplate.
-     * Поля apiKey/secretKey/baseUrl останутся null, если вызывается напрямую.
-     */
     public BinanceHttpClient() {
         this.restTemplate = new RestTemplate();
     }
 
-    /**
-     * Конструктор для создания из фабрики.
-     */
     public BinanceHttpClient(String apiKey, String secretKey, String baseUrl) {
-        this(); 
+        this();
         this.apiKey = apiKey;
         this.secretKey = secretKey;
         this.baseUrl = baseUrl;
         log.info("BinanceHttpClient initialized via factory: baseUrl={}, apiKey={}", baseUrl, apiKey);
     }
 
-    // =====================================================================================
-    // Методы, уже были
-    // =====================================================================================
+    // Получаем serverTime с Binance
+    private long getServerTime() {
+        try {
+            String json = restTemplate.getForObject(baseUrl + "/api/v3/time", String.class);
+            JsonNode node = objectMapper.readTree(json);
+            return node.get("serverTime").asLong();
+        } catch (Exception e) {
+            throw new RuntimeException("Не удалось получить serverTime", e);
+        }
+    }
+
+    // Универсальный signed GET
+    private String sendSignedGet(String url, Map<String, String> params) {
+        params.put("timestamp", String.valueOf(getServerTime()));
+        params.put("recvWindow", "5000");
+
+        String query = buildQuery(params);
+        String signature = generateSignature(secretKey, query);
+        String fullUrl = url + "?" + query + "&signature=" + signature;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-MBX-APIKEY", apiKey);
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+        ResponseEntity<String> resp = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, String.class);
+        return resp.getBody();
+    }
+
+    // Универсальный signed POST
+    private String sendSignedPost(String url, Map<String, String> params) {
+        params.put("timestamp", String.valueOf(getServerTime()));
+        params.put("recvWindow", "5000");
+
+        String query = buildQuery(params);
+        String signature = generateSignature(secretKey, query);
+        String fullUrl = url + "?" + query + "&signature=" + signature;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-MBX-APIKEY", apiKey);
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+        ResponseEntity<String> resp = restTemplate.exchange(fullUrl, HttpMethod.POST, entity, String.class);
+        return resp.getBody();
+    }
 
     public String sendPublicGet(String url) {
         return restTemplate.getForObject(url, String.class);
     }
 
-    public String sendSignedGet(String url, String apiKey, String secretKey, Map<String, String> params) {
-        String query = buildQuery(params);
-        String signature = generateSignature(secretKey, query);
-        String fullUrl = url + "?" + query + "&signature=" + signature;
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("X-MBX-APIKEY", apiKey);
-        HttpEntity<String> entity = new HttpEntity<>(headers);
-
-        ResponseEntity<String> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, String.class);
-        return response.getBody();
-    }
-
-    public String sendSignedPost(String url, String apiKey, String secretKey, Map<String, String> params) {
-        String query = buildQuery(params);
-        String signature = generateSignature(secretKey, query);
-        String fullUrl = url + "?" + query + "&signature=" + signature;
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("X-MBX-APIKEY", apiKey);
-        HttpEntity<String> entity = new HttpEntity<>(headers);
-
-        ResponseEntity<String> response = restTemplate.exchange(fullUrl, HttpMethod.POST, entity, String.class);
-        return response.getBody();
-    }
-
-    // =====================================================================================
-    // Новые методы для BinanceRestClient
-    // =====================================================================================
-
     /** Информация об бирже (списки пар, лимиты и т.п.) */
     public ExchangeInfo getExchangeInfo() {
         try {
-            String url = baseUrl + "/api/v3/exchangeInfo";
-            String json = sendPublicGet(url);
+            String json = sendPublicGet(baseUrl + "/api/v3/exchangeInfo");
             return objectMapper.readValue(json, ExchangeInfo.class);
         } catch (Exception e) {
             throw new RuntimeException("Ошибка при getExchangeInfo", e);
@@ -99,10 +101,11 @@ public class BinanceHttpClient {
     /** Текущая цена символа */
     public BigDecimal getLastPrice(String symbol) {
         try {
-            String url = baseUrl + "/api/v3/ticker/price?symbol=" + URLEncoder.encode(symbol, StandardCharsets.UTF_8);
-            String json = sendPublicGet(url);
-            JsonNode node = objectMapper.readTree(json);
-            return new BigDecimal(node.get("price").asText());
+            String url = baseUrl + "/api/v3/ticker/price";
+            Map<String,String> params = Map.of("symbol", URLEncoder.encode(symbol, StandardCharsets.UTF_8));
+            String json = sendPublicGet(url + "?symbol=" + params.get("symbol"));
+            JsonNode n = objectMapper.readTree(json);
+            return new BigDecimal(n.get("price").asText());
         } catch (Exception e) {
             throw new RuntimeException("Ошибка при getLastPrice", e);
         }
@@ -113,11 +116,10 @@ public class BinanceHttpClient {
         try {
             String url = baseUrl + "/api/v3/account";
             Map<String,String> params = new HashMap<>();
-            params.put("timestamp", String.valueOf(System.currentTimeMillis()));
-            String json = sendSignedGet(url, apiKey, secretKey, params);
+            String json = sendSignedGet(url, params);
 
-            JsonNode balances = objectMapper.readTree(json).get("balances");
-            for (JsonNode b : balances) {
+            JsonNode arr = objectMapper.readTree(json).get("balances");
+            for (JsonNode b : arr) {
                 if (asset.equals(b.get("asset").asText())) {
                     return new BigDecimal(b.get("free").asText());
                 }
@@ -136,8 +138,7 @@ public class BinanceHttpClient {
         params.put("side", "BUY");
         params.put("type", "MARKET");
         params.put("quantity", qty.toPlainString());
-        params.put("timestamp", String.valueOf(System.currentTimeMillis()));
-        sendSignedPost(url, apiKey, secretKey, params);
+        sendSignedPost(url, params);
         log.info("BINANCE HTTP: MARKET BUY {} qty={}", symbol, qty);
     }
 
@@ -149,8 +150,7 @@ public class BinanceHttpClient {
         params.put("side", "SELL");
         params.put("type", "MARKET");
         params.put("quantity", qty.toPlainString());
-        params.put("timestamp", String.valueOf(System.currentTimeMillis()));
-        sendSignedPost(url, apiKey, secretKey, params);
+        sendSignedPost(url, params);
         log.info("BINANCE HTTP: MARKET SELL {} qty={}", symbol, qty);
     }
 
@@ -164,20 +164,15 @@ public class BinanceHttpClient {
         params.put("quantity", qty.toPlainString());
         params.put("stopPrice", stopLossPrice.toPlainString());
         params.put("price", takeProfitPrice.toPlainString());
-        params.put("timestamp", String.valueOf(System.currentTimeMillis()));
-        sendSignedPost(url, apiKey, secretKey, params);
+        sendSignedPost(url, params);
         log.info("BINANCE HTTP: OCO SELL {} qty={} SL={} TP={}", symbol, qty, stopLossPrice, takeProfitPrice);
     }
-
-    // =====================================================================================
-    // Private helpers
-    // =====================================================================================
 
     private String buildQuery(Map<String, String> params) {
         return params.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> e.getKey() + "=" + URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8))
-                .reduce((a, b) -> a + "&" + b)
+                .reduce((a,b) -> a + "&" + b)
                 .orElse("");
     }
 
