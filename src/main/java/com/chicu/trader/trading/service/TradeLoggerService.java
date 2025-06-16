@@ -27,13 +27,13 @@ public class TradeLoggerService {
      * Сохраняем новую открытую сделку
      */
     public void logNewTrade(Long chatId, String symbol, double qty, double entryPrice,
-                             double tpPrice, double slPrice) {
+                            double tpPrice, double slPrice) {
         TradeLog trade = TradeLog.builder()
                 .userChatId(chatId)
                 .symbol(symbol)
                 .entryTime(Instant.now())
-                .entryPrice(entryPrice)
-                .quantity(qty)
+                .entryPrice(BigDecimal.valueOf(entryPrice))
+                .quantity(BigDecimal.valueOf(qty))
                 .takeProfitPrice(BigDecimal.valueOf(tpPrice))
                 .stopLossPrice(BigDecimal.valueOf(slPrice))
                 .isClosed(false)
@@ -42,14 +42,24 @@ public class TradeLoggerService {
     }
 
     /**
-     * Закрываем сделку (по выходу)
+     * Закрываем сделку (по выходу), рассчитываем PnL как (exitPrice – entryPrice) * quantity
      */
     public void closeTrade(Long chatId, String symbol, double exitPrice) {
-        Optional<TradeLog> tradeOpt = tradeLogRepository.findFirstByUserChatIdAndSymbolAndIsClosedFalseOrderByEntryTimeDesc(chatId, symbol);
+        Optional<TradeLog> tradeOpt = tradeLogRepository
+                .findFirstByUserChatIdAndSymbolAndIsClosedFalseOrderByEntryTimeDesc(chatId, symbol);
+
         tradeOpt.ifPresent(trade -> {
-            trade.setExitTime(Instant.now());
-            trade.setExitPrice(exitPrice);
-            trade.setPnl((exitPrice - trade.getEntryPrice()) * trade.getQuantity());
+            Instant now = Instant.now();
+            BigDecimal exitBd = BigDecimal.valueOf(exitPrice);
+
+            // (exitPrice – entryPrice) * quantity
+            BigDecimal pnl = exitBd
+                    .subtract(trade.getEntryPrice())
+                    .multiply(trade.getQuantity());
+
+            trade.setExitTime(now);
+            trade.setExitPrice(exitBd);
+            trade.setPnl(pnl);
             trade.setIsClosed(true);
             tradeLogRepository.save(trade);
         });
@@ -66,6 +76,7 @@ public class TradeLoggerService {
      * Возвращаем все открытые позиции по конкретному символу
      */
     public List<TradeLog> findOpenTradesBySymbol(Long chatId, String symbol) {
-        return tradeLogRepository.findAllByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
+        return tradeLogRepository
+                .findAllByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
     }
 }

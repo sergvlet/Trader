@@ -24,125 +24,89 @@ public class EntryService {
     private final BinanceExchangeInfoService exchangeInfoService;
     private final AccountService accountService;
 
-    /**
-     * Открывает MARKET BUY и ставит OCO-ордер под заданные параметры.
-     */
     public void enterTrade(Long chatId,
                            String symbol,
                            double entryPrice,
                            AiTradingSettings settings,
                            ProfitablePair pair) {
 
-        // 1) Проверяем, нет ли уже открытой сделки по этому символу
-        if (tradeLogRepository.existsByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol)) {
+        // 1) проверяем, нет ли уже открытой позиции
+        boolean hasOpen = tradeLogRepository
+                .existsByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
+        if (hasOpen) {
             log.warn("Entry ▶ already open trade chatId={} symbol={}", chatId, symbol);
             return;
         }
 
-        // 2) Смотрим свободный баланс в квоте
+        // 2) считаем, сколько можем потратить
         String quoteAsset = detectQuoteAsset(symbol);
         BigDecimal freeBalance = accountService.getFreeBalance(chatId, quoteAsset);
-        if (freeBalance.compareTo(BigDecimal.ZERO) <= 0) {
-            log.warn("Entry ▶ no free {} balance for chatId={}", quoteAsset, chatId);
-            return;
-        }
+        if (freeBalance.compareTo(BigDecimal.ZERO) <= 0) return;
 
-        // 3) Считаем, сколько потратить (riskThreshold в %)
-        double riskPct = settings.getRiskThreshold() != null ? settings.getRiskThreshold() : 0.0;
-        BigDecimal toSpend = freeBalance.multiply(BigDecimal.valueOf(riskPct / 100.0));
-        if (toSpend.compareTo(BigDecimal.ZERO) <= 0) {
-            log.warn("Entry ▶ zero amount to spend: chatId={} symbol={}", chatId, symbol);
-            return;
-        }
-
-        // 4) Учёт проскальзывания
-        double slipPct = settings.getSlippageTolerance() != null
-                ? settings.getSlippageTolerance()
+        double riskPct = settings.getRiskThreshold() != null
+                ? settings.getRiskThreshold()
                 : 0.0;
-        BigDecimal spendable = toSpend.multiply(
-                BigDecimal.valueOf(1.0 - slipPct / 100.0)
-        );
+        BigDecimal amountToSpend = freeBalance
+                .multiply(BigDecimal.valueOf(riskPct).divide(BigDecimal.valueOf(100)));
+        if (amountToSpend.compareTo(BigDecimal.ZERO) <= 0) return;
 
-        // 5) Считаем «сырое» количество
-        BigDecimal rawQty = spendable.divide(
-                BigDecimal.valueOf(entryPrice),
-                8,
-                RoundingMode.DOWN
+        BigDecimal slipFactor = BigDecimal.ONE.subtract(
+                BigDecimal.valueOf(
+                        (settings.getSlippageTolerance() != null
+                                ? settings.getSlippageTolerance()
+                                : 0.0) / 100.0
+                )
         );
+        BigDecimal spendable = amountToSpend.multiply(slipFactor);
 
-        // 6) Выравниваем по шагу лота
+        // 3) вычисляем максимально возможное qty по stepSize
+        BigDecimal rawQty = spendable
+                .divide(BigDecimal.valueOf(entryPrice), 8, RoundingMode.DOWN);
         BigDecimal stepSize = exchangeInfoService.getLotStepSize(symbol);
-        if (stepSize.compareTo(BigDecimal.ZERO) <= 0) {
-            log.warn("Entry ▶ stepSize=0 for symbol={}", symbol);
-            return;
-        }
-        int qtyScale = stepSize.stripTrailingZeros().scale();
-        BigDecimal qtyBd = rawQty.setScale(qtyScale, RoundingMode.DOWN);
-        if (qtyBd.compareTo(stepSize) < 0) {
-            log.warn("Entry ▶ qty {} < stepSize {} for symbol={}", qtyBd, stepSize, symbol);
-            return;
-        }
+        BigDecimal qtyBd = rawQty
+                .divide(stepSize, 0, RoundingMode.DOWN)
+                .multiply(stepSize);
+        if (qtyBd.compareTo(stepSize) < 0) return;
 
-        // 7) Размещаем MARKET BUY
-        try {
-            orderService.placeMarketBuy(chatId, symbol, qtyBd);
-            log.info("Entry ▶ MARKET BUY placed: chatId={} symbol={} qty={}",
-                    chatId, symbol, qtyBd);
-        } catch (Exception e) {
-            log.error("Entry ▶ failed to place MARKET BUY: chatId={} symbol={} qty={} — {}",
-                    chatId, symbol, qtyBd, e.getMessage(), e);
-            return;
-        }
+        // 4) размещаем маркет-бай
+        orderService.placeMarketBuy(chatId, symbol, qtyBd);
+        log.info("Entry ▶ Market BUY placed chatId={} symbol={} qty={}",
+                chatId, symbol, qtyBd);
 
-        // 8) Ставим OCO (TP/SL) по параметрам ProfitablePair
+        // 5) считаем TP/SL с учётом tickSize
         BigDecimal tickSize = exchangeInfoService.getPriceTickSize(symbol);
-        if (tickSize.compareTo(BigDecimal.ZERO) <= 0) {
-            log.warn("Entry ▶ tickSize=0 for symbol={}", symbol);
-        } else {
-            // takeProfit = entryPrice * (1 + takeProfitPct/100)
-            BigDecimal tp = BigDecimal.valueOf(entryPrice)
-                    .multiply(BigDecimal.valueOf(1.0 + pair.getTakeProfitPct() / 100.0))
-                    .divide(tickSize, 0, RoundingMode.DOWN)
-                    .multiply(tickSize);
+        BigDecimal tp = BigDecimal.valueOf(entryPrice)
+                .multiply(BigDecimal.valueOf(1.0 + riskPct / 100.0))
+                .divide(tickSize, 0, RoundingMode.DOWN)
+                .multiply(tickSize);
 
-            // stopLoss = entryPrice * (1 - stopLossPct/100)
-            BigDecimal sl = BigDecimal.valueOf(entryPrice)
-                    .multiply(BigDecimal.valueOf(1.0 - pair.getStopLossPct() / 100.0))
-                    .divide(tickSize, 0, RoundingMode.DOWN)
-                    .multiply(tickSize);
+        BigDecimal sl = BigDecimal.valueOf(entryPrice)
+                .multiply(BigDecimal.valueOf(1.0 - riskPct / 100.0))
+                .divide(tickSize, 0, RoundingMode.DOWN)
+                .multiply(tickSize);
 
-            try {
-                orderService.placeOcoSell(chatId, symbol, qtyBd, sl, tp);
-                log.info("Entry ▶ OCO placed: chatId={} symbol={} SL={} TP={}",
-                        chatId, symbol, sl, tp);
-            } catch (Exception e) {
-                log.warn("Entry ▶ failed to place OCO: {}", e.getMessage(), e);
-            }
+        // 6) пытаемся поставить OCO
+        try {
+            orderService.placeOcoSell(chatId, symbol, qtyBd, sl, tp);
+        } catch (Exception e) {
+            log.warn("Entry ▶ OCO order failed {}", e.getMessage());
         }
 
-        // 9) Сохраняем в TradeLog
-        TradeLog logEntry = TradeLog.builder()
-                .userChatId(chatId)
-                .symbol(symbol)
-                .entryTime(Instant.now())
-                .entryPrice(entryPrice)
-                .quantity(qtyBd.doubleValue())
-                .takeProfitPrice(
-                        BigDecimal.valueOf(entryPrice)
-                                .multiply(BigDecimal.valueOf(1.0 + pair.getTakeProfitPct() / 100.0))
-                                .setScale(tickSize.stripTrailingZeros().scale(), RoundingMode.DOWN)
-                )
-                .stopLossPrice(
-                        BigDecimal.valueOf(entryPrice)
-                                .multiply(BigDecimal.valueOf(1.0 - pair.getStopLossPct() / 100.0))
-                                .setScale(tickSize.stripTrailingZeros().scale(), RoundingMode.DOWN)
-                )
-                .isClosed(false)
-                .build();
-        tradeLogRepository.save(logEntry);
-
-        log.info("Entry ▶ TradeLog saved: chatId={} symbol={} qty={} entry={}",
-                chatId, symbol, qtyBd, entryPrice);
+        // 7) сохраняем в БД
+        tradeLogRepository.save(
+                TradeLog.builder()
+                        .userChatId(chatId)
+                        .symbol(symbol)
+                        .entryTime(Instant.now())
+                        // Оборачиваем double → BigDecimal
+                        .entryPrice(BigDecimal.valueOf(entryPrice))
+                        // Передаём BigDecimal qty
+                        .quantity(qtyBd)
+                        .takeProfitPrice(tp)
+                        .stopLossPrice(sl)
+                        .isClosed(false)
+                        .build()
+        );
     }
 
     private String detectQuoteAsset(String symbol) {
@@ -150,6 +114,7 @@ public class EntryService {
         if (symbol.endsWith("BUSD")) return "BUSD";
         if (symbol.endsWith("BTC"))  return "BTC";
         if (symbol.endsWith("ETH"))  return "ETH";
+        // на всякий случай
         return symbol.replaceFirst("^[A-Z]+", "");
     }
 }

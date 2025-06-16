@@ -19,26 +19,40 @@ public class ExitService {
     private final TradeLogRepository tradeLogRepository;
     private final OrderService orderService;
 
-    public void exitTrade(Long chatId, String symbol, double exitPrice) {
+    /**
+     * Закрыть все открытые сделки по символу: продать маркет-селлом и записать exit-поля.
+     *
+     * @param chatId      ID пользователя
+     * @param symbol      торговая пара
+     * @param exitPriceD  цена выхода (double), обернём в BigDecimal
+     */
+    public void exitTrade(Long chatId, String symbol, double exitPriceD) {
+        // 1) находим все незакрытые логи
         List<TradeLog> openTrades = tradeLogRepository
                 .findAllByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
 
+        // 2) обрабатываем каждую
         for (TradeLog trade : openTrades) {
             try {
-                // Используем placeMarketSell и BigDecimal для количества
-                orderService.placeMarketSell(
-                        chatId,
-                        symbol,
-                        BigDecimal.valueOf(trade.getQuantity())
-                );
+                // продать количество, уже хранящееся как BigDecimal
+                orderService.placeMarketSell(chatId, symbol, trade.getQuantity());
             } catch (Exception e) {
                 log.error("Exit ▶ Failed to sell: {}", e.getMessage(), e);
             }
 
-            trade.setExitTime(Instant.now());
+            // 3) обновляем поля в сущности
+            Instant now = Instant.now();
+            BigDecimal exitPrice = BigDecimal.valueOf(exitPriceD);
+            BigDecimal pnl = exitPrice
+                    .subtract(trade.getEntryPrice())
+                    .multiply(trade.getQuantity());
+
+            trade.setExitTime(now);
             trade.setExitPrice(exitPrice);
-            trade.setPnl((exitPrice - trade.getEntryPrice()) * trade.getQuantity());
+            trade.setPnl(pnl);
             trade.setIsClosed(true);
+
+            // 4) сохраняем обновлённый лог
             tradeLogRepository.save(trade);
         }
     }

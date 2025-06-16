@@ -72,8 +72,8 @@ public class TradingEntryManager {
                 .userChatId(chatId)
                 .symbol(symbol)
                 .entryTime(Instant.now())
-                .entryPrice(price)
-                .quantity(qtyBd.doubleValue())
+                .entryPrice(BigDecimal.valueOf(price))
+                .quantity(BigDecimal.valueOf(qtyBd.doubleValue()))
                 .isClosed(false)
                 .build();
         tradeLogRepository.save(logEntry);

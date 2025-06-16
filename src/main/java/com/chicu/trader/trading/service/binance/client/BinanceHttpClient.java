@@ -24,12 +24,12 @@ import java.util.*;
 @Slf4j
 public class BinanceHttpClient {
 
-    private static final String TIME_EP      = "/api/v3/time";
-    private static final String INFO_EP      = "/api/v3/exchangeInfo";
-    private static final String PRICE_EP     = "/api/v3/ticker/price";
-    private static final String ACCOUNT_EP   = "/api/v3/account";
-    private static final String ORDER_EP     = "/api/v3/order";
-    private static final String OCO_ORDER_EP = "/api/v3/order/oco";
+    private static final String TIME_EP        = "/api/v3/time";
+    private static final String INFO_EP        = "/api/v3/exchangeInfo";
+    private static final String PRICE_EP       = "/api/v3/ticker/price";
+    private static final String ACCOUNT_EP     = "/api/v3/account";
+    private static final String ORDER_EP       = "/api/v3/order";
+    private static final String OCO_ORDER_EP   = "/api/v3/order/oco";
     private static final long   DEFAULT_WINDOW = 5_000L;
 
     private final RestTemplate restTemplate = new RestTemplate();
@@ -123,9 +123,9 @@ public class BinanceHttpClient {
 
     /**
      * OCO SELL:
-     *  - takeProfit — округляем вверх к тиковому шагу
-     *  - stopPrice   — тоже вверх
-     *  - stopLimitPrice — на один тик ниже stopPrice
+     *  – основной лимитный ордер (takeProfit) всегда выше текущей цены на минимум 1 тик
+     *  – триггер стоп-лимита (stopPrice) всегда ниже текущей цены на минимум 1 тик
+     *  – стоп-лимит (stopLimitPrice) на один тик ниже stopPrice
      */
     public void placeOcoSell(String symbol,
                              BigDecimal qty,
@@ -134,7 +134,7 @@ public class BinanceHttpClient {
         requireKeys();
         if (exchangeInfo == null) getExchangeInfo();
 
-        // 1) Получаем параметры символа
+        // 1) Получаем фильтры для символа
         SymbolInfo info = exchangeInfo.getSymbols().stream()
                 .filter(s -> s.getSymbol().equals(symbol))
                 .findFirst()
@@ -145,45 +145,73 @@ public class BinanceHttpClient {
                 .map(SymbolFilter::getTickSize)
                 .map(BigDecimal::new)
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("PRICE_FILTER not found: " + symbol));
+                .orElseThrow(() -> new RuntimeException("PRICE_FILTER not found"));
 
         BigDecimal stepSize = info.getFilters().stream()
                 .filter(f -> "LOT_SIZE".equals(f.getFilterType()))
                 .map(SymbolFilter::getStepSize)
                 .map(BigDecimal::new)
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("LOT_SIZE not found: " + symbol));
+                .orElseThrow(() -> new RuntimeException("LOT_SIZE not found"));
 
-        // 2) Вычисляем масштабы
         int priceScale = tickSize.stripTrailingZeros().scale();
         int qtyScale   = stepSize.stripTrailingZeros().scale();
         BigDecimal tick = tickSize.stripTrailingZeros();
 
-        // 3) Округляем
-        BigDecimal quantity      = qty.setScale(qtyScale,   RoundingMode.DOWN);
-        BigDecimal takeProfit    = takeProfitPrice.setScale(priceScale, RoundingMode.UP);
-        BigDecimal stopPrice     = stopLossPrice  .setScale(priceScale, RoundingMode.UP);
-        BigDecimal stopLimit     = stopPrice.subtract(tick)
-                .setScale(priceScale, RoundingMode.DOWN);
+        // 2) Обрезаем количество по шагу
+        BigDecimal quantity = qty.setScale(qtyScale, RoundingMode.DOWN);
+        if (quantity.compareTo(stepSize) < 0) {
+            throw new RuntimeException("Quantity too small for symbol " + symbol);
+        }
 
-        // 4) Формируем параметры OCO
+        // 3) Берём актуальную цену рынка
+        BigDecimal lastPrice = getLastPrice(symbol);
+
+        // 4) Корректируем TP и SL так, чтобы:
+        //    TP >= lastPrice + tick
+        //    stopPrice <= lastPrice - tick
+        //    stopLimit = stopPrice - tick
+
+        // исходные, округлённые под тик
+        BigDecimal rawTP = takeProfitPrice.setScale(priceScale, RoundingMode.DOWN);
+        BigDecimal rawSP = stopLossPrice  .setScale(priceScale, RoundingMode.UP);
+
+        // минимальный TP — один тик выше рынка
+        BigDecimal minTP = lastPrice.add(tick).setScale(priceScale, RoundingMode.DOWN);
+        if (rawTP.compareTo(minTP) < 0) {
+            rawTP = minTP;
+        }
+
+        // максимальный триггер SL — один тик ниже рынка
+        BigDecimal maxSP = lastPrice.subtract(tick).setScale(priceScale, RoundingMode.UP);
+        if (rawSP.compareTo(maxSP) > 0) {
+            rawSP = maxSP;
+        }
+
+        // стоп-лимит на один тик ниже триггера
+        BigDecimal rawSLimit = rawSP.subtract(tick).setScale(priceScale, RoundingMode.DOWN);
+
+        // 5) Проверяем финальные взаимоотношения
+        if (!(rawSLimit.compareTo(rawSP) < 0
+                && rawSP.compareTo(rawTP) < 0)) {
+            throw new RuntimeException(String.format(
+                    "Invalid OCO prices: takeProfit=%s, stopPrice=%s, stopLimit=%s",
+                    rawTP, rawSP, rawSLimit));
+        }
+
+        // 6) Формируем и шлём запрос
         Map<String,String> params = new LinkedHashMap<>();
-        params.put("symbol",               symbol);
-        params.put("side",                 "SELL");
-        params.put("quantity",             quantity.toPlainString());
-        params.put("price",                takeProfit.toPlainString());
-        params.put("stopPrice",            stopPrice.toPlainString());
-        params.put("stopLimitPrice",       stopLimit.toPlainString());
-        params.put("stopLimitTimeInForce", "GTC");
+        params.put("symbol",             symbol);
+        params.put("side",               "SELL");
+        params.put("quantity",           quantity.toPlainString());
+        params.put("price",              rawTP.toPlainString());
+        params.put("stopPrice",          rawSP.toPlainString());
+        params.put("stopLimitPrice",     rawSLimit.toPlainString());
+        params.put("stopLimitTimeInForce","GTC");
 
-        // 5) Отсылаем
         sendSigned(HttpMethod.POST, OCO_ORDER_EP, params);
         log.info("OCO SELL {} qty={} TP={} stopPrice={} stopLimit={}",
-                symbol,
-                quantity,
-                takeProfit,
-                stopPrice,
-                stopLimit);
+                symbol, quantity, rawTP, rawSP, rawSLimit);
     }
 
     // --- Internal ---
@@ -198,9 +226,7 @@ public class BinanceHttpClient {
         }
     }
 
-    private String sendSigned(HttpMethod method,
-                              String path,
-                              Map<String,String> params) {
+    private String sendSigned(HttpMethod method, String path, Map<String,String> params) {
         requireKeys();
 
         Map<String,String> q = new HashMap<>(params);
@@ -213,15 +239,13 @@ public class BinanceHttpClient {
                 .reduce((a,b) -> a + "&" + b)
                 .orElse("");
 
-        String signature = generateSignature(secretKey, query);
-        String url = baseUrl + path + "?" + query + "&signature=" + signature;
+        String sig = generateSignature(secretKey, query);
+        String url = baseUrl + path + "?" + query + "&signature=" + sig;
 
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-MBX-APIKEY", apiKey);
 
-        ResponseEntity<String> resp = restTemplate.exchange(
-                url, method, new HttpEntity<>(headers), String.class
-        );
+        ResponseEntity<String> resp = restTemplate.exchange(url, method, new HttpEntity<>(headers), String.class);
         return resp.getBody();
     }
 
@@ -237,9 +261,7 @@ public class BinanceHttpClient {
             hmac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
             byte[] hash = hmac.doFinal(data.getBytes(StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();
-            for (byte b : hash) {
-                sb.append(String.format("%02x", b));
-            }
+            for (byte b : hash) sb.append(String.format("%02x", b));
             return sb.toString();
         } catch (Exception e) {
             throw new RuntimeException("Ошибка generateSignature", e);
