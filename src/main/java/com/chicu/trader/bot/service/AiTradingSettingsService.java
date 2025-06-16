@@ -6,9 +6,9 @@ import com.chicu.trader.bot.entity.User;
 import com.chicu.trader.bot.repository.AiTradingSettingsRepository;
 import com.chicu.trader.bot.repository.UserRepository;
 import com.chicu.trader.strategy.StrategyType;
-import com.chicu.trader.trading.OptimizationResult;
 import com.chicu.trader.trading.entity.ProfitablePair;
 import com.chicu.trader.trading.ml.MlModelTrainer;
+import com.chicu.trader.trading.ml.MlTrainingException;
 import com.chicu.trader.trading.ml.MlTrainingMetrics;
 import com.chicu.trader.trading.optimizer.OptimizerService;
 import com.chicu.trader.trading.repository.ProfitablePairRepository;
@@ -73,104 +73,133 @@ public class AiTradingSettingsService {
         log.info("🔬 Запуск обучения и оптимизации для chatId={}", chatId);
 
         String modelPath = String.format("models/%d/ml_signal_filter.onnx", chatId);
-        MlTrainingMetrics metrics = modelTrainer.trainAndExport(chatId, modelPath);
+        final MlTrainingMetrics metrics;
+        try {
+            metrics = modelTrainer.trainAndExport(chatId, modelPath);
+        } catch (MlTrainingException e) {
+            log.error("❌ Не удалось обучить ML-модель для chatId={}", chatId, e);
+            return CompletableFuture.failedFuture(e);
+        }
 
-        optimizer.optimizeAllForChat(chatId); // <-- фиксим тут
+        // прогоняем оптимизацию
+        optimizer.optimizeAllForChat(chatId);
 
+        // сохраняем метрики в настройках
         AiTradingSettings s = getOrCreate(chatId);
         s.setMlAccuracy(metrics.getAccuracy());
         s.setMlAuc(metrics.getAuc());
         s.setMlPrecision(metrics.getPrecision());
         s.setMlRecall(metrics.getRecall());
         s.setMlTrainedAt(System.currentTimeMillis());
+        settingsRepo.save(s);
 
-        save(s);
-        log.info("✅ Модель обучена и оптимизирована для chatId={}, acc={}, auc={}", chatId, metrics.getAccuracy(), metrics.getAuc());
+        log.info("✅ Модель обучена и оптимизирована для chatId={}, acc={}, auc={}",
+                chatId, metrics.getAccuracy(), metrics.getAuc());
         return CompletableFuture.completedFuture(null);
     }
 
-    /** === Обновление отдельных параметров === */
+    // === Методы обновления параметров ===
+
     public void updateRiskThreshold(Long chatId, Double riskPercent) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setRiskThreshold(riskPercent);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateSymbols(Long chatId, String symbolsCsv) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setSymbols(symbolsCsv);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateTimeframe(Long chatId, String timeframe) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setTimeframe(timeframe);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateTopN(Long chatId, Integer topN) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setTopN(topN);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateLeverage(Long chatId, Integer leverage) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setLeverage(leverage);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateMaxDrawdown(Long chatId, Double value) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setMaxDrawdown(value);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateTradeCooldown(Long chatId, Integer cooldown) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setTradeCooldown(cooldown);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateSlippageTolerance(Long chatId, Double slippage) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setSlippageTolerance(slippage);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateOrderType(Long chatId, String orderType) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setOrderType(orderType);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateNotificationsEnabled(Long chatId, Boolean enabled) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setNotificationsEnabled(enabled);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateModelVersion(Long chatId, String version) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setModelVersion(version);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateCachedCandlesLimit(Long chatId, Integer limit) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setCachedCandlesLimit(limit);
-        save(s);
+        settingsRepo.save(s);
     }
 
     public void updateStrategy(Long chatId, String strategyCode) {
         AiTradingSettings s = getOrCreate(chatId);
         s.setStrategy(StrategyType.valueOf(strategyCode));
-        save(s);
+        settingsRepo.save(s);
     }
 
-    /** === Reset методы === */
+    public void updateMaxPositions(Long chatId, Integer maxPositions) {
+        AiTradingSettings s = getOrCreate(chatId);
+        s.setMaxPositions(maxPositions);
+        settingsRepo.save(s);
+    }
+
+    public void setRunning(Long chatId, boolean isRunning) {
+        AiTradingSettings s = getOrCreate(chatId);
+        s.setIsRunning(isRunning);
+        settingsRepo.save(s);
+    }
+
+    public void updateTpSl(Long chatId, String tpSlJson) {
+        AiTradingSettings s = getOrCreate(chatId);
+        s.setTpSlConfig(tpSlJson);
+        settingsRepo.save(s);
+    }
+
+    // === Сброс к дефолтам ===
+
     public void resetTimeframeDefaults(Long chatId) { updateTimeframe(chatId, defaults.getDefaultTimeframe()); }
-    public void resetTopNDefaults(Long chatId) { updateTopN(chatId, defaults.getDefaultTopN()); }
+    public void resetTopNDefaults(Long chatId)    { updateTopN(chatId, defaults.getDefaultTopN()); }
     public void resetRiskThresholdDefaults(Long chatId) { updateRiskThreshold(chatId, defaults.getDefaultRiskThreshold()); }
     public void resetLeverageDefaults(Long chatId) { updateLeverage(chatId, defaults.getDefaultLeverage()); }
     public void resetMaxDrawdownDefaults(Long chatId) { updateMaxDrawdown(chatId, defaults.getDefaultMaxDrawdown()); }
@@ -182,12 +211,12 @@ public class AiTradingSettingsService {
     public void resetCachedCandlesLimitDefaults(Long chatId) { updateCachedCandlesLimit(chatId, defaults.getDefaultCachedCandlesLimit()); }
     public void resetSymbolsDefaults(Long chatId) { updateSymbols(chatId, defaults.getDefaultSymbols()); }
     public void resetStrategyDefaults(Long chatId) { updateStrategy(chatId, defaults.getDefaultStrategy()); }
+    public void resetMaxPositionsDefaults(Long chatId) { updateMaxPositions(chatId, defaults.getDefaultMaxPositions()); }
 
-    /** === Вспомогательные методы === */
+    // === Утилитарные методы ===
 
     public List<String> suggestPairs(Long chatId) {
-        AiTradingSettings s = getOrCreate(chatId);
-        int topN = Optional.ofNullable(s.getTopN()).orElse(defaults.getDefaultTopN());
+        int topN = Optional.ofNullable(getOrCreate(chatId).getTopN()).orElse(defaults.getDefaultTopN());
         return pairRepo.findByUserChatId(chatId).stream()
                 .sorted((a, b) -> Double.compare(b.getTakeProfitPct(), a.getTakeProfitPct()))
                 .limit(topN)
@@ -206,35 +235,18 @@ public class AiTradingSettingsService {
                 .orElseThrow(() -> new IllegalStateException("AiTradingSettings not found for chatId=" + chatId));
     }
 
-    public AiTradingSettings save(AiTradingSettings settings) {
-        return settingsRepo.save(settings);
-    }
-
     public List<AiTradingSettings> findAllRunning() {
         return settingsRepo.findByIsRunningTrue();
     }
-    public void updateMaxPositions(Long chatId, Integer maxPositions) {
-        AiTradingSettings s = getOrCreate(chatId);
-        s.setMaxPositions(maxPositions);
-        settingsRepo.save(s);
-    }
-    public void resetMaxPositionsDefaults(Long chatId) {
-        updateMaxPositions(chatId, defaults.getDefaultMaxPositions());
-    }
-    public void setRunning(Long chatId, boolean isRunning) {
-        AiTradingSettings settings = getOrCreate(chatId);
-        settings.setIsRunning(isRunning);
-        settingsRepo.save(settings);
-    }
-    public void updateTpSl(Long chatId, String tpSlJson) {
-        AiTradingSettings settings = getOrCreate(chatId);
-        settings.setTpSlConfig(tpSlJson);
-        settingsRepo.save(settings);
-    }
+
     public List<AiTradingSettings> getAllActiveTrading() {
         return settingsRepo.findByIsRunningTrue();
     }
-
-
+    /**
+     * Сохраняет переданные настройки в базу.
+     */
+    public AiTradingSettings save(AiTradingSettings settings) {
+        return settingsRepo.save(settings);
+    }
 
 }
