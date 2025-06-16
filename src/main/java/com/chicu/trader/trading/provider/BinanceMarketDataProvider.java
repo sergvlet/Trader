@@ -1,10 +1,12 @@
 package com.chicu.trader.trading.provider;
 
 import com.chicu.trader.trading.model.Candle;
+import com.chicu.trader.trading.provider.MarketDataProvider;
 import com.chicu.trader.trading.service.binance.HttpBinanceCandleService;
 import com.chicu.trader.trading.service.binance.BinanceExchangeInfoService;
 import com.chicu.trader.trading.service.binance.client.BinanceRestClient;
 import com.chicu.trader.trading.service.binance.client.BinanceRestClientFactory;
+import com.chicu.trader.trading.service.binance.client.model.SymbolInfo;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -28,9 +30,11 @@ public class BinanceMarketDataProvider implements MarketDataProvider {
 
     @Override
     public List<String> getAllSymbols() {
-        return exchangeInfoService.getAllSymbols()
-                .stream()
-                .filter(symbol -> symbol.endsWith("USDT"))
+        // Получаем кэшированный ExchangeInfo и извлекаем названия всех символов
+        return exchangeInfoService.getExchangeInfoCached()
+                .getSymbols().stream()
+                .map(SymbolInfo::getSymbol)
+                .filter(s -> s.endsWith("USDT"))
                 .collect(Collectors.toList());
     }
 
@@ -40,7 +44,9 @@ public class BinanceMarketDataProvider implements MarketDataProvider {
         return client.getLastPrice(symbol);
     }
 
-    // Дополнительно: публичный метод, если где-то нужно без chatId
+    /**
+     * Получить публичную цену без API-ключей.
+     */
     public BigDecimal getPublicPrice(String symbol) {
         BinanceRestClient publicClient = clientFactory.getPublicClient();
         return publicClient.getLastPrice(symbol);

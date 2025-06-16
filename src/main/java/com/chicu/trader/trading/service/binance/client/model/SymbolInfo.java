@@ -1,18 +1,18 @@
+// src/main/java/com/chicu/trader/trading/service/binance/client/model/SymbolInfo.java
 package com.chicu.trader.trading.service.binance.client.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
-import java.math.BigDecimal;
+import java.util.List;
 
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class SymbolInfo {
+    @JsonProperty("symbol")
     private String symbol;
-    private BigDecimal lotSizeStep;
-    private BigDecimal priceTickSize;
 
-    public SymbolInfo(String symbol, BigDecimal lotSizeStep, BigDecimal priceTickSize) {
-        this.symbol = symbol;
-        this.lotSizeStep = lotSizeStep;
-        this.priceTickSize = priceTickSize;
-    }
+    @JsonProperty("filters")
+    private List<SymbolFilter> filters;
 }

@@ -1,18 +1,36 @@
 package com.chicu.trader.trading.service.binance.client;
 
-import com.chicu.trader.bot.service.ApiCredentials;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+/**
+ * Фабрика для создания BinanceHttpClient:
+ *  - публичного (market-data-only) без ключей,
+ *  - приватного с ключами пользователя.
+ */
 @Component
-@RequiredArgsConstructor
 public class BinanceHttpClientFactory {
 
-    public BinanceHttpClient create(String apiKey, String secretKey, boolean testnet) {
-        String baseUrl = testnet
-                ? "https://testnet.binance.vision"
-                : "https://api.binance.com";
+    @Value("${binance.base-url}")
+    private String baseUrl;
 
-        return new BinanceHttpClient(apiKey, secretKey, baseUrl);
+    @Value("${binance.testnet-base-url}")
+    private String testnetBaseUrl;
+
+    /**
+     * @param apiKey     API-ключ (null для публичного клиента)
+     * @param secretKey  Секрет (null для публичного клиента)
+     * @param isTestnet  Если true — берем testnetBaseUrl, иначе — production baseUrl
+     */
+    public BinanceHttpClient create(String apiKey, String secretKey, boolean isTestnet) {
+        String url = isTestnet ? testnetBaseUrl : baseUrl;
+
+        // Если ключей нет — создаем "public" клиент через конструктор без ключей
+        if (apiKey == null || secretKey == null) {
+            return new BinanceHttpClient(url);
+        }
+
+        // Иначе — полный клиент с ключами
+        return new BinanceHttpClient(apiKey, secretKey, url);
     }
 }
