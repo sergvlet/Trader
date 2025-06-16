@@ -1,15 +1,30 @@
-// src/main/java/com/chicu/trader/trading/ml/Dataset.java
 package com.chicu.trader.trading.ml;
 
-public class Dataset {
-    private final double[][] features;
-    private final double[]   labels;
+import com.chicu.trader.trading.entity.Candle;
+import lombok.*;
 
+import java.util.List;
+
+@Getter
+@Setter
+@AllArgsConstructor
+@Builder
+public class Dataset {
+    private double[][] features;
+    private double[] labels;
+    private List<Candle> candles;
+
+    // Существующие конструкторы
+    public Dataset() { }
+
+    public Dataset(List<Candle> candles) {
+        this.candles = candles;
+        // здесь ваша логика подготовки features и labels из candles
+    }
+
+    // Добавляем этот конструктор
     public Dataset(double[][] features, double[] labels) {
         this.features = features;
         this.labels   = labels;
     }
-
-    public double[][] getFeatures() { return features; }
-    public double[]   getLabels()   { return labels; }
 }

@@ -1,27 +1,34 @@
-// src/main/java/com/chicu/trader/trading/ml/impl/SimpleModelTrainerInternal.java
 package com.chicu.trader.trading.ml.impl;
 
-import com.chicu.trader.trading.ml.Dataset;
-import com.chicu.trader.trading.ml.Model;
 import com.chicu.trader.trading.ml.ModelTrainerInternal;
-import com.chicu.trader.trading.ml.MlTrainingException;
-import org.springframework.stereotype.Service;
+import com.chicu.trader.trading.ml.TrainedModel;
+import com.chicu.trader.trading.ml.dataset.Dataset;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
 
-@Service
+@Slf4j
+@Component
 public class SimpleModelTrainerInternal implements ModelTrainerInternal {
 
     @Override
-    public Model train(Dataset dataset) throws MlTrainingException {
-        double[][] X = dataset.getFeatures();
-        double[]   y = dataset.getLabels();
-        int nFeatures = X[0].length;
+    public TrainedModel train(Dataset dataset) {
+        long start = System.currentTimeMillis();
 
-        // Заглушка: инициализируем все веса нулями
-        double[] weights = new double[nFeatures];
-        double   bias    = 0.0;
+        // TODO: здесь ваша реальная логика обучения на dataset.getX() и dataset.getY()
+        double dummyAccuracy  = 0.5;
+        double dummyAuc       = 0.5;
+        double dummyPrecision = 0.5;
+        double dummyRecall    = 0.5;
 
-        // TODO: здесь ваш реальный алгоритм обучения
+        long elapsed = System.currentTimeMillis() - start;
+        log.info("SimpleModelTrainerInternal: обучили модель за {} мс", elapsed);
 
-        return new Model(weights, bias);
+        return TrainedModel.builder()
+                .accuracy(dummyAccuracy)
+                .auc(dummyAuc)
+                .precision(dummyPrecision)
+                .recall(dummyRecall)
+                .trainingTimeMillis(elapsed)
+                .build();
     }
 }

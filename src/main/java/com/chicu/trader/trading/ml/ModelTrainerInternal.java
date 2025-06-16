@@ -1,9 +1,7 @@
-// src/main/java/com/chicu/trader/trading/ml/ModelTrainerInternal.java
 package com.chicu.trader.trading.ml;
 
+import com.chicu.trader.trading.ml.dataset.Dataset;
+
 public interface ModelTrainerInternal {
-    /**
-     * Тренирует модель на основе Dataset и возвращает объект Model.
-     */
-    Model train(Dataset dataset) throws MlTrainingException;
+    TrainedModel train(Dataset dataset) throws MlTrainingException;
 }

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import javax.crypto.Mac;
@@ -24,12 +25,12 @@ import java.util.*;
 @Slf4j
 public class BinanceHttpClient {
 
-    private static final String TIME_EP        = "/api/v3/time";
-    private static final String INFO_EP        = "/api/v3/exchangeInfo";
-    private static final String PRICE_EP       = "/api/v3/ticker/price";
-    private static final String ACCOUNT_EP     = "/api/v3/account";
-    private static final String ORDER_EP       = "/api/v3/order";
-    private static final String OCO_ORDER_EP   = "/api/v3/order/oco";
+    private static final String TIME_EP      = "/api/v3/time";
+    private static final String INFO_EP      = "/api/v3/exchangeInfo";
+    private static final String PRICE_EP     = "/api/v3/ticker/price";
+    private static final String ACCOUNT_EP   = "/api/v3/account";
+    private static final String ORDER_EP     = "/api/v3/order";
+    private static final String OCO_ORDER_EP = "/api/v3/order/oco";
     private static final long   DEFAULT_WINDOW = 5_000L;
 
     private final RestTemplate restTemplate = new RestTemplate();
@@ -167,51 +168,44 @@ public class BinanceHttpClient {
         // 3) Берём актуальную цену рынка
         BigDecimal lastPrice = getLastPrice(symbol);
 
-        // 4) Корректируем TP и SL так, чтобы:
-        //    TP >= lastPrice + tick
-        //    stopPrice <= lastPrice - tick
-        //    stopLimit = stopPrice - tick
-
-        // исходные, округлённые под тик
+        // 4) Корректируем TP/SL
         BigDecimal rawTP = takeProfitPrice.setScale(priceScale, RoundingMode.DOWN);
-        BigDecimal rawSP = stopLossPrice  .setScale(priceScale, RoundingMode.UP);
-
-        // минимальный TP — один тик выше рынка
+        BigDecimal rawSP = stopLossPrice.setScale(priceScale, RoundingMode.UP);
         BigDecimal minTP = lastPrice.add(tick).setScale(priceScale, RoundingMode.DOWN);
-        if (rawTP.compareTo(minTP) < 0) {
-            rawTP = minTP;
-        }
-
-        // максимальный триггер SL — один тик ниже рынка
+        if (rawTP.compareTo(minTP) < 0) rawTP = minTP;
         BigDecimal maxSP = lastPrice.subtract(tick).setScale(priceScale, RoundingMode.UP);
-        if (rawSP.compareTo(maxSP) > 0) {
-            rawSP = maxSP;
-        }
-
-        // стоп-лимит на один тик ниже триггера
+        if (rawSP.compareTo(maxSP) > 0) rawSP = maxSP;
         BigDecimal rawSLimit = rawSP.subtract(tick).setScale(priceScale, RoundingMode.DOWN);
 
-        // 5) Проверяем финальные взаимоотношения
-        if (!(rawSLimit.compareTo(rawSP) < 0
-                && rawSP.compareTo(rawTP) < 0)) {
+        if (!(rawSLimit.compareTo(rawSP) < 0 && rawSP.compareTo(rawTP) < 0)) {
             throw new RuntimeException(String.format(
-                    "Invalid OCO prices: takeProfit=%s, stopPrice=%s, stopLimit=%s",
+                    "Invalid OCO prices: TP=%s, stopPrice=%s, stopLimit=%s",
                     rawTP, rawSP, rawSLimit));
         }
 
-        // 6) Формируем и шлём запрос
         Map<String,String> params = new LinkedHashMap<>();
-        params.put("symbol",             symbol);
-        params.put("side",               "SELL");
-        params.put("quantity",           quantity.toPlainString());
-        params.put("price",              rawTP.toPlainString());
-        params.put("stopPrice",          rawSP.toPlainString());
-        params.put("stopLimitPrice",     rawSLimit.toPlainString());
+        params.put("symbol",              symbol);
+        params.put("side",                "SELL");
+        params.put("quantity",            quantity.toPlainString());
+        params.put("price",               rawTP.toPlainString());
+        params.put("stopPrice",           rawSP.toPlainString());
+        params.put("stopLimitPrice",      rawSLimit.toPlainString());
         params.put("stopLimitTimeInForce","GTC");
 
-        sendSigned(HttpMethod.POST, OCO_ORDER_EP, params);
-        log.info("OCO SELL {} qty={} TP={} stopPrice={} stopLimit={}",
-                symbol, quantity, rawTP, rawSP, rawSLimit);
+        // 5) Пытаемся OCO, при code=-2010 падаем на MARKET SELL
+        try {
+            sendSigned(HttpMethod.POST, OCO_ORDER_EP, params);
+            log.info("OCO SELL {} qty={} TP={} stopPrice={} stopLimit={}",
+                    symbol, quantity, rawTP, rawSP, rawSLimit);
+        } catch (HttpClientErrorException.BadRequest ex) {
+            String body = ex.getResponseBodyAsString();
+            if (body.contains("\"code\":-2010")) {
+                log.warn("OCO отклонён ({}), выполняем MARKET SELL вместо него", body);
+                placeMarketSell(symbol, quantity);
+            } else {
+                throw ex;
+            }
+        }
     }
 
     // --- Internal ---
