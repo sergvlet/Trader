@@ -18,19 +18,18 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
- * HTTP-клиент для работы с Binance REST API.
- * Может быть инициализирован либо с ключами (полный доступ),
- * либо только с baseUrl для публичных запросов (market-data).
+ * HTTP-клиент для Binance REST API.
+ * Поддерживает публичный market-data режим и приватный режим с ключами.
  */
 @Slf4j
 public class BinanceHttpClient {
 
-    private static final String TIME_EP        = "/api/v3/time";
-    private static final String INFO_EP        = "/api/v3/exchangeInfo";
-    private static final String PRICE_EP       = "/api/v3/ticker/price";
-    private static final String ACCOUNT_EP     = "/api/v3/account";
-    private static final String ORDER_EP       = "/api/v3/order";
-    private static final String OCO_ORDER_EP   = "/api/v3/order/oco";
+    private static final String TIME_EP      = "/api/v3/time";
+    private static final String INFO_EP      = "/api/v3/exchangeInfo";
+    private static final String PRICE_EP     = "/api/v3/ticker/price";
+    private static final String ACCOUNT_EP   = "/api/v3/account";
+    private static final String ORDER_EP     = "/api/v3/order";
+    private static final String OCO_ORDER_EP = "/api/v3/order/oco";
     private static final long   DEFAULT_WINDOW = 5_000L;
 
     private final RestTemplate restTemplate = new RestTemplate();
@@ -39,22 +38,10 @@ public class BinanceHttpClient {
     private final String       secretKey;
     private final String       baseUrl;
 
-    /** Кэш загруженного ExchangeInfo */
-    private ExchangeInfo       exchangeInfo;
+    /** Кэш последнего getExchangeInfo() */
+    private ExchangeInfo exchangeInfo;
 
-    /**
-     * Полный конструктор с API-ключами — для торговли и чтения аккаунта.
-     */
-    public BinanceHttpClient(String apiKey, String secretKey, String baseUrl) {
-        this.apiKey    = Objects.requireNonNull(apiKey, "apiKey");
-        this.secretKey = Objects.requireNonNull(secretKey, "secretKey");
-        this.baseUrl   = Objects.requireNonNull(baseUrl, "baseUrl");
-        log.info("BinanceHttpClient initialized (private): {}", baseUrl);
-    }
-
-    /**
-     * Публичный конструктор без ключей — только market-data эндпоинты.
-     */
+    /** Публичный конструктор — market-data only */
     public BinanceHttpClient(String baseUrl) {
         this.apiKey    = null;
         this.secretKey = null;
@@ -62,9 +49,16 @@ public class BinanceHttpClient {
         log.info("BinanceHttpClient initialized (public): {}", baseUrl);
     }
 
-    // ---------------- Public API ----------------
+    /** Приватный конструктор — требует apiKey/secretKey */
+    public BinanceHttpClient(String apiKey, String secretKey, String baseUrl) {
+        this.apiKey    = Objects.requireNonNull(apiKey,    "apiKey");
+        this.secretKey = Objects.requireNonNull(secretKey, "secretKey");
+        this.baseUrl   = Objects.requireNonNull(baseUrl,   "baseUrl");
+        log.info("BinanceHttpClient initialized (private): {}", baseUrl);
+    }
 
-    /** Информация об обмене (списки пар и фильтров) */
+    // --- Public API ---
+
     public ExchangeInfo getExchangeInfo() {
         try {
             String json = restTemplate.getForObject(baseUrl + INFO_EP, String.class);
@@ -75,11 +69,10 @@ public class BinanceHttpClient {
         }
     }
 
-    /** Текущая цена символа */
     public BigDecimal getLastPrice(String symbol) {
         try {
             String url  = baseUrl + PRICE_EP
-                          + "?symbol=" + URLEncoder.encode(symbol, StandardCharsets.UTF_8);
+                    + "?symbol=" + URLEncoder.encode(symbol, StandardCharsets.UTF_8);
             String json = restTemplate.getForObject(url, String.class);
             JsonNode node = objectMapper.readTree(json);
             return new BigDecimal(node.get("price").asText());
@@ -88,8 +81,8 @@ public class BinanceHttpClient {
         }
     }
 
-    /** Баланс по активу (требует ключей) */
     public BigDecimal getBalance(String asset) {
+        requireKeys();
         String json = sendSigned(HttpMethod.GET, ACCOUNT_EP, Collections.emptyMap());
         try {
             JsonNode arr = objectMapper.readTree(json).get("balances");
@@ -104,86 +97,96 @@ public class BinanceHttpClient {
         }
     }
 
-    /** Рынoчный BUY (требует ключей) */
     public void placeMarketBuy(String symbol, BigDecimal qty) {
         requireKeys();
-        Map<String,String> p = Map.of(
-            "symbol",   symbol,
-            "side",     "BUY",
-            "type",     "MARKET",
-            "quantity", qty.stripTrailingZeros().toPlainString()
+        Map<String,String> params = Map.of(
+                "symbol",   symbol,
+                "side",     "BUY",
+                "type",     "MARKET",
+                "quantity", qty.stripTrailingZeros().toPlainString()
         );
-        sendSigned(HttpMethod.POST, ORDER_EP, p);
+        sendSigned(HttpMethod.POST, ORDER_EP, params);
         log.info("MARKET BUY {} qty={}", symbol, qty);
     }
 
-    /** Рынoчный SELL (требует ключей) */
     public void placeMarketSell(String symbol, BigDecimal qty) {
         requireKeys();
-        Map<String,String> p = Map.of(
-            "symbol",   symbol,
-            "side",     "SELL",
-            "type",     "MARKET",
-            "quantity", qty.stripTrailingZeros().toPlainString()
+        Map<String,String> params = Map.of(
+                "symbol",   symbol,
+                "side",     "SELL",
+                "type",     "MARKET",
+                "quantity", qty.stripTrailingZeros().toPlainString()
         );
-        sendSigned(HttpMethod.POST, ORDER_EP, p);
+        sendSigned(HttpMethod.POST, ORDER_EP, params);
         log.info("MARKET SELL {} qty={}", symbol, qty);
     }
 
-    /** OCO SELL (требует ключей) */
+    /**
+     * OCO SELL:
+     *  - takeProfit — округляем вверх к тиковому шагу
+     *  - stopPrice   — тоже вверх
+     *  - stopLimitPrice — на один тик ниже stopPrice
+     */
     public void placeOcoSell(String symbol,
                              BigDecimal qty,
                              BigDecimal stopLossPrice,
                              BigDecimal takeProfitPrice) {
-        // при первом вызове подгружаем exchangeInfo
+        requireKeys();
         if (exchangeInfo == null) getExchangeInfo();
 
-        // находим информацию по символу
+        // 1) Получаем параметры символа
         SymbolInfo info = exchangeInfo.getSymbols().stream()
-            .filter(s -> s.getSymbol().equals(symbol))
-            .findFirst()
-            .orElseThrow(() -> new RuntimeException("Symbol not found: " + symbol));
+                .filter(s -> s.getSymbol().equals(symbol))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Symbol not found: " + symbol));
 
-        // извлекаем tickSize и stepSize из фильтров
         BigDecimal tickSize = info.getFilters().stream()
-            .filter(f -> "PRICE_FILTER".equals(f.getFilterType()))
-            .map(SymbolFilter::getTickSize)
-            .map(BigDecimal::new)
-            .findFirst()
-            .orElseThrow(() -> new RuntimeException("PRICE_FILTER not found: " + symbol));
+                .filter(f -> "PRICE_FILTER".equals(f.getFilterType()))
+                .map(SymbolFilter::getTickSize)
+                .map(BigDecimal::new)
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("PRICE_FILTER not found: " + symbol));
 
         BigDecimal stepSize = info.getFilters().stream()
-            .filter(f -> "LOT_SIZE".equals(f.getFilterType()))
-            .map(SymbolFilter::getStepSize)
-            .map(BigDecimal::new)
-            .findFirst()
-            .orElseThrow(() -> new RuntimeException("LOT_SIZE not found: " + symbol));
+                .filter(f -> "LOT_SIZE".equals(f.getFilterType()))
+                .map(SymbolFilter::getStepSize)
+                .map(BigDecimal::new)
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("LOT_SIZE not found: " + symbol));
 
-        int pricePrec = tickSize.stripTrailingZeros().scale();
-        int qtyPrec   = stepSize.stripTrailingZeros().scale();
+        // 2) Вычисляем масштабы
+        int priceScale = tickSize.stripTrailingZeros().scale();
+        int qtyScale   = stepSize.stripTrailingZeros().scale();
+        BigDecimal tick = tickSize.stripTrailingZeros();
 
-        // округляем вниз
-        BigDecimal tp = takeProfitPrice.setScale(pricePrec, RoundingMode.DOWN);
-        BigDecimal sl = stopLossPrice .setScale(pricePrec, RoundingMode.DOWN);
-        BigDecimal q  = qty           .setScale(qtyPrec,   RoundingMode.DOWN);
+        // 3) Округляем
+        BigDecimal quantity      = qty.setScale(qtyScale,   RoundingMode.DOWN);
+        BigDecimal takeProfit    = takeProfitPrice.setScale(priceScale, RoundingMode.UP);
+        BigDecimal stopPrice     = stopLossPrice  .setScale(priceScale, RoundingMode.UP);
+        BigDecimal stopLimit     = stopPrice.subtract(tick)
+                .setScale(priceScale, RoundingMode.DOWN);
 
-        requireKeys();
-        Map<String,String> p = new LinkedHashMap<>();
-        p.put("symbol",               symbol);
-        p.put("side",                 "SELL");
-        p.put("quantity",             q.stripTrailingZeros().toPlainString());
-        p.put("price",                tp.stripTrailingZeros().toPlainString());
-        p.put("stopPrice",            sl.stripTrailingZeros().toPlainString());
-        p.put("stopLimitPrice",       sl.stripTrailingZeros().toPlainString());
-        p.put("stopLimitTimeInForce", "GTC");
+        // 4) Формируем параметры OCO
+        Map<String,String> params = new LinkedHashMap<>();
+        params.put("symbol",               symbol);
+        params.put("side",                 "SELL");
+        params.put("quantity",             quantity.toPlainString());
+        params.put("price",                takeProfit.toPlainString());
+        params.put("stopPrice",            stopPrice.toPlainString());
+        params.put("stopLimitPrice",       stopLimit.toPlainString());
+        params.put("stopLimitTimeInForce", "GTC");
 
-        sendSigned(HttpMethod.POST, OCO_ORDER_EP, p);
-        log.info("OCO SELL {} qty={} SL={} TP={}",
-            symbol, q.toPlainString(), sl.toPlainString(), tp.toPlainString()
-        );
+        // 5) Отсылаем
+        sendSigned(HttpMethod.POST, OCO_ORDER_EP, params);
+        log.info("OCO SELL {} qty={} TP={} stopPrice={} stopLimit={}",
+                symbol,
+                quantity,
+                takeProfit,
+                stopPrice,
+                stopLimit);
     }
 
-    // ---------------- Internal ----------------
+    // --- Internal ---
 
     private long getServerTime() {
         try {
@@ -205,42 +208,38 @@ public class BinanceHttpClient {
         q.put("recvWindow", String.valueOf(DEFAULT_WINDOW));
 
         String query = q.entrySet().stream()
-            .sorted(Map.Entry.comparingByKey())
-            .map(e -> e.getKey() + "="
-                + URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8))
-            .reduce((a,b) -> a + "&" + b)
-            .orElse("");
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> e.getKey() + "=" + URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8))
+                .reduce((a,b) -> a + "&" + b)
+                .orElse("");
 
-        String sig = generateSignature(secretKey, query);
-        String url = baseUrl + path + "?" + query + "&signature=" + sig;
+        String signature = generateSignature(secretKey, query);
+        String url = baseUrl + path + "?" + query + "&signature=" + signature;
 
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-MBX-APIKEY", apiKey);
 
         ResponseEntity<String> resp = restTemplate.exchange(
-            url, method, new HttpEntity<>(headers), String.class
+                url, method, new HttpEntity<>(headers), String.class
         );
         return resp.getBody();
     }
 
     private void requireKeys() {
         if (apiKey == null || secretKey == null) {
-            throw new IllegalStateException(
-                "This operation requires API key and secret"
-            );
+            throw new IllegalStateException("This operation requires API key and secret");
         }
     }
 
-    private String generateSignature(String secretKey, String query) {
+    private String generateSignature(String secret, String data) {
         try {
             Mac hmac = Mac.getInstance("HmacSHA256");
-            hmac.init(
-                new SecretKeySpec(secretKey.getBytes(StandardCharsets.UTF_8),
-                                  "HmacSHA256")
-            );
-            byte[] hash = hmac.doFinal(query.getBytes(StandardCharsets.UTF_8));
+            hmac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            byte[] hash = hmac.doFinal(data.getBytes(StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();
-            for (byte b : hash) sb.append(String.format("%02x", b));
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
             return sb.toString();
         } catch (Exception e) {
             throw new RuntimeException("Ошибка generateSignature", e);
