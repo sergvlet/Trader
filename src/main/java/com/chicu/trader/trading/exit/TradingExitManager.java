@@ -30,7 +30,7 @@ public class TradingExitManager {
      */
     @Scheduled(fixedDelay = 30_000)
     public void monitorOpenTrades() {
-        List<TradeLog> openTrades = tradeLogRepository.findAllByIsClosedFalse();
+        List<TradeLog> openTrades = tradeLogRepository.findAllByClosedFalse();
 
         for (TradeLog trade : openTrades) {
             try {
@@ -71,7 +71,7 @@ public class TradingExitManager {
                             .multiply(quantity);
 
                     // обновляем лог и сохраняем
-                    trade.setIsClosed(true);
+                    trade.setClosed(true);
                     trade.setExitTime(Instant.now());
                     trade.setExitPrice(currentPrice);
                     trade.setPnl(pnl);
@@ -99,7 +99,7 @@ public class TradingExitManager {
                     .subtract(trade.getEntryPrice())
                     .multiply(quantity);
 
-            trade.setIsClosed(true);
+            trade.setClosed(true);
             trade.setExitTime(Instant.now());
             trade.setExitPrice(currentPrice);
             trade.setPnl(pnl);

@@ -70,7 +70,7 @@ public class TradeOrchestrator {
                         .quantity(BigDecimal.valueOf(qty.doubleValue()))
                         .takeProfitPrice(tpPrice)
                         .stopLossPrice(slPrice)
-                        .isClosed(false)
+                        .closed(false)
                         .build();
                 tradeLogRepository.save(logEntry);
 

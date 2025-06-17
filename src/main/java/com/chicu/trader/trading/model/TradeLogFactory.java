@@ -29,7 +29,7 @@ public class TradeLogFactory {
                 .quantity(qty)
                 .takeProfitPrice(ctx.getTpPrice())
                 .stopLossPrice(ctx.getSlPrice())
-                .isClosed(false)
+                .closed(false)
                 .build();
     }
 
@@ -57,7 +57,7 @@ public class TradeLogFactory {
                 .exitTime(Instant.ofEpochMilli(ctx.getCandle().getCloseTime()))
                 .exitPrice(exitPrice)
                 .pnl(pnl)
-                .isClosed(true)
+                .closed(true)
                 .build();
     }
 }

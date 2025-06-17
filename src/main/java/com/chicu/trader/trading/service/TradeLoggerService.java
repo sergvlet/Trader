@@ -20,7 +20,7 @@ public class TradeLoggerService {
      * Проверяем — есть ли открытая позиция по символу
      */
     public boolean hasOpenPosition(Long chatId, String symbol) {
-        return tradeLogRepository.existsByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
+        return tradeLogRepository.existsByUserChatIdAndSymbolAndClosedFalse(chatId, symbol);
     }
 
     /**
@@ -36,7 +36,7 @@ public class TradeLoggerService {
                 .quantity(BigDecimal.valueOf(qty))
                 .takeProfitPrice(BigDecimal.valueOf(tpPrice))
                 .stopLossPrice(BigDecimal.valueOf(slPrice))
-                .isClosed(false)
+                .closed(false)    // вместо isClosed
                 .build();
         tradeLogRepository.save(trade);
     }
@@ -46,7 +46,7 @@ public class TradeLoggerService {
      */
     public void closeTrade(Long chatId, String symbol, double exitPrice) {
         Optional<TradeLog> tradeOpt = tradeLogRepository
-                .findFirstByUserChatIdAndSymbolAndIsClosedFalseOrderByEntryTimeDesc(chatId, symbol);
+                .findFirstByUserChatIdAndSymbolAndClosedFalseOrderByEntryTimeDesc(chatId, symbol);
 
         tradeOpt.ifPresent(trade -> {
             Instant now = Instant.now();
@@ -60,7 +60,7 @@ public class TradeLoggerService {
             trade.setExitTime(now);
             trade.setExitPrice(exitBd);
             trade.setPnl(pnl);
-            trade.setIsClosed(true);
+            trade.setClosed(true);  // вместо setIsClosed
             tradeLogRepository.save(trade);
         });
     }
@@ -69,7 +69,7 @@ public class TradeLoggerService {
      * Возвращаем все открытые позиции пользователя
      */
     public List<TradeLog> findOpenTrades(Long chatId) {
-        return tradeLogRepository.findAllByUserChatIdAndIsClosedFalse(chatId);
+        return tradeLogRepository.findAllByUserChatIdAndClosedFalse(chatId);
     }
 
     /**
@@ -77,6 +77,6 @@ public class TradeLoggerService {
      */
     public List<TradeLog> findOpenTradesBySymbol(Long chatId, String symbol) {
         return tradeLogRepository
-                .findAllByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
+                .findAllByUserChatIdAndSymbolAndClosedFalse(chatId, symbol);
     }
 }

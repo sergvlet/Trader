@@ -29,7 +29,7 @@ public class ExitService {
     public void exitTrade(Long chatId, String symbol, double exitPriceD) {
         // 1) находим все незакрытые логи
         List<TradeLog> openTrades = tradeLogRepository
-                .findAllByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
+                .findAllByUserChatIdAndSymbolAndClosedFalse(chatId, symbol);
 
         // 2) обрабатываем каждую
         for (TradeLog trade : openTrades) {
@@ -50,7 +50,7 @@ public class ExitService {
             trade.setExitTime(now);
             trade.setExitPrice(exitPrice);
             trade.setPnl(pnl);
-            trade.setIsClosed(true);
+            trade.setClosed(true);
 
             // 4) сохраняем обновлённый лог
             tradeLogRepository.save(trade);

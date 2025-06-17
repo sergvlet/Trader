@@ -3,6 +3,7 @@ package com.chicu.trader.trading.repository;
 import com.chicu.trader.trading.entity.TradeLog;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -11,23 +12,36 @@ import java.util.Optional;
 @Repository
 public interface TradeLogRepository extends JpaRepository<TradeLog, Long> {
 
-    boolean existsByUserChatIdAndSymbolAndIsClosedFalse(Long chatId, String symbol);
+    // Проверить, есть ли открытая сделка по чату и символу
+    boolean existsByUserChatIdAndSymbolAndClosedFalse(Long chatId, String symbol);
 
-    List<TradeLog> findAllByUserChatIdAndSymbolAndIsClosedFalse(Long chatId, String symbol);
+    // Все открытые сделки по чату и символу
+    List<TradeLog> findAllByUserChatIdAndSymbolAndClosedFalse(Long chatId, String symbol);
 
-    List<TradeLog> findAllByIsClosedFalse();
+    // Все открытые сделки
+    List<TradeLog> findAllByClosedFalse();
 
+    // Недавние закрытые прибыльные сделки для пользователя
     @Query("""
-        SELECT t FROM TradeLog t
-        WHERE t.userChatId = :chatId AND t.isClosed = true AND t.pnl > 0
-        ORDER BY t.exitTime DESC
+        SELECT t
+          FROM TradeLog t
+         WHERE t.userChatId = :chatId
+           AND t.closed     = true
+           AND t.pnl        > 0
+         ORDER BY t.exitTime DESC
         """)
-    List<TradeLog> findRecentClosedProfitableTrades(Long chatId);
+    List<TradeLog> findRecentClosedProfitableTrades(@Param("chatId") Long chatId);
 
-    // Метод для поиска последней открытой сделки по символу
-    Optional<TradeLog> findFirstByUserChatIdAndSymbolAndIsClosedFalseOrderByEntryTimeDesc(Long chatId, String symbol);
+    // Последняя открытая сделка по символу
+    Optional<TradeLog> findFirstByUserChatIdAndSymbolAndClosedFalseOrderByEntryTimeDesc(
+            Long chatId,
+            String symbol
+    );
 
-    // Метод для поиска всех открытых сделок по пользователю
-    List<TradeLog> findAllByUserChatIdAndIsClosedFalse(Long chatId);
+    // Все открытые сделки для пользователя
+    List<TradeLog> findAllByUserChatIdAndClosedFalse(Long chatId);
+
+    // Найти открытую сделку по clientOrderId
+    @Query("SELECT t FROM TradeLog t WHERE t.clientOrderId = :cid AND t.closed = false")
+    Optional<TradeLog> findOpenByClientOrderId(@Param("cid") String clientOrderId);
 }
-

@@ -33,7 +33,7 @@ public class TradingEntryManager {
                            AiTradingSettings settings) {
 
         // 1) Проверяем, нет ли уже открытой сделки
-        if (tradeLogRepository.existsByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol)) {
+        if (tradeLogRepository.existsByUserChatIdAndSymbolAndClosedFalse(chatId, symbol)) {
             log.info("⛔ Уже есть открытая сделка для {} (chatId={})", symbol, chatId);
             return;
         }
@@ -63,7 +63,7 @@ public class TradingEntryManager {
             log.info("✅ Размещен MARKET BUY: chatId={} symbol={} qty={}", chatId, symbol, qtyBd);
         } catch (Exception ex) {
             log.error("❌ Ошибка размещения BUY: chatId={} symbol={} qty={} — {}",
-                      chatId, symbol, qtyBd, ex.getMessage(), ex);
+                    chatId, symbol, qtyBd, ex.getMessage(), ex);
             return;
         }
 
@@ -73,12 +73,11 @@ public class TradingEntryManager {
                 .symbol(symbol)
                 .entryTime(Instant.now())
                 .entryPrice(BigDecimal.valueOf(price))
-                .quantity(BigDecimal.valueOf(qtyBd.doubleValue()))
-                .isClosed(false)
+                .quantity(qtyBd)
+                .closed(false)                // здесь используем .closed(), а не .isClosed()
                 .build();
         tradeLogRepository.save(logEntry);
 
-        log.info("💾 Сохранен TradeLog: chatId={} symbol={} qty={} entry={}",
-                 chatId, symbol, qtyBd, price);
+        log.info("💾 Сохранен TradeLog: chatId={} symbol={} qty={} entry={}", chatId, symbol, qtyBd, price);
     }
 }

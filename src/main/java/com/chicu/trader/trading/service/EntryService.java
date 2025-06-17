@@ -32,7 +32,7 @@ public class EntryService {
 
         // 1) проверяем, нет ли уже открытой позиции
         boolean hasOpen = tradeLogRepository
-                .existsByUserChatIdAndSymbolAndIsClosedFalse(chatId, symbol);
+                .existsByUserChatIdAndSymbolAndClosedFalse(chatId, symbol);
         if (hasOpen) {
             log.warn("Entry ▶ already open trade chatId={} symbol={}", chatId, symbol);
             return;
@@ -70,8 +70,7 @@ public class EntryService {
 
         // 4) размещаем маркет-бай
         orderService.placeMarketBuy(chatId, symbol, qtyBd);
-        log.info("Entry ▶ Market BUY placed chatId={} symbol={} qty={}",
-                chatId, symbol, qtyBd);
+        log.info("Entry ▶ Market BUY placed chatId={} symbol={} qty={}", chatId, symbol, qtyBd);
 
         // 5) считаем TP/SL с учётом tickSize
         BigDecimal tickSize = exchangeInfoService.getPriceTickSize(symbol);
@@ -98,13 +97,11 @@ public class EntryService {
                         .userChatId(chatId)
                         .symbol(symbol)
                         .entryTime(Instant.now())
-                        // Оборачиваем double → BigDecimal
                         .entryPrice(BigDecimal.valueOf(entryPrice))
-                        // Передаём BigDecimal qty
                         .quantity(qtyBd)
                         .takeProfitPrice(tp)
                         .stopLossPrice(sl)
-                        .isClosed(false)
+                        .closed(false)       // <-- здесь
                         .build()
         );
     }
