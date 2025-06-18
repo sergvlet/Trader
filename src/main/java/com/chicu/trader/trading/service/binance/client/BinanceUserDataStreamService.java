@@ -93,7 +93,7 @@ public class BinanceUserDataStreamService extends TextWebSocketHandler {
             BigDecimal price = new BigDecimal(root.path("p").asText());
             Instant   time  = Instant.ofEpochMilli(root.path("E").asLong());
 
-            tradeLogRepo.findOpenByClientOrderId(clientId)
+            tradeLogRepo.findOpenByEntryClientOrderId(clientId)
                     .ifPresent(entry -> {
                         BigDecimal pnl = price
                                 .subtract(entry.getEntryPrice())

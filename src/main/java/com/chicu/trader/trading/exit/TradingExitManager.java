@@ -2,6 +2,7 @@ package com.chicu.trader.trading.exit;
 
 import com.chicu.trader.trading.entity.TradeLog;
 import com.chicu.trader.trading.repository.TradeLogRepository;
+import com.chicu.trader.trading.service.PriceService;
 import com.chicu.trader.trading.service.binance.OrderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,7 +20,8 @@ import java.util.List;
 public class TradingExitManager {
 
     private final TradeLogRepository tradeLogRepository;
-    private final OrderService orderService;
+    private final OrderService       orderService;
+    private final PriceService       priceService;
 
     // Для примера — проценты TP/SL
     private final double tpPct = 0.5;  // 0.5% take-profit
@@ -37,11 +39,9 @@ public class TradingExitManager {
                 String symbol = trade.getSymbol();
                 Long chatId = trade.getUserChatId();
 
-                // entryPrice и количество уже хранятся как BigDecimal
-                BigDecimal entryPrice  = trade.getEntryPrice();
-                BigDecimal quantity    = trade.getQuantity();
+                BigDecimal entryPrice = trade.getEntryPrice();
+                BigDecimal quantity   = trade.getQuantity();
 
-                // считаем уровни TP/SL
                 BigDecimal tp = entryPrice
                         .multiply(BigDecimal.valueOf(1.0 + tpPct / 100.0))
                         .setScale(8, RoundingMode.HALF_UP);
@@ -49,9 +49,10 @@ public class TradingExitManager {
                         .multiply(BigDecimal.valueOf(1.0 - slPct / 100.0))
                         .setScale(8, RoundingMode.HALF_UP);
 
-                // получаем текущую цену
-                BigDecimal currentPrice = orderService.getLastPrice(chatId, symbol);
+                // получаем текущую цену через PriceService
+                BigDecimal currentPrice = priceService.getPrice(chatId, symbol);
                 if (currentPrice == null) {
+                    log.warn("Не удалось получить цену для {} при выходе", symbol);
                     continue;
                 }
 
@@ -65,12 +66,10 @@ public class TradingExitManager {
                     // маркет-селл нужного количества
                     orderService.placeMarketSell(chatId, symbol, quantity);
 
-                    // считаем PnL = (exit – entry) * qty
                     BigDecimal pnl = currentPrice
                             .subtract(entryPrice)
                             .multiply(quantity);
 
-                    // обновляем лог и сохраняем
                     trade.setClosed(true);
                     trade.setExitTime(Instant.now());
                     trade.setExitPrice(currentPrice);

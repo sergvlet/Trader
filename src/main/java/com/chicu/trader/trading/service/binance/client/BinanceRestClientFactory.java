@@ -31,7 +31,7 @@ public class BinanceRestClientFactory {
                 ? settings.getTestSecretKey()
                 : settings.getRealSecretKey();
 
-        // Передаём флаг isTestnet, не URL!
+        // Создаём HTTP-клиент с ключами и флагом testnet
         BinanceHttpClient httpClient = httpClientFactory.create(apiKey, secretKey, isTestnet);
         return new BinanceRestClient(apiKey, secretKey, isTestnet, httpClient);
     }

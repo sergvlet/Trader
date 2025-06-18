@@ -33,32 +33,32 @@ public class TradeLog {
     @Column(name = "quantity", nullable = false, precision = 18, scale = 8)
     private BigDecimal quantity;
 
-    @Column(name = "exit_time")
+    // --- выходные поля теперь nullable ---
+
+    @Column(name = "exit_time", nullable = true)
     private Instant exitTime;
 
-    @Builder.Default
-    @Column(name = "exit_price", nullable = false, precision = 18, scale = 8)
-    private BigDecimal exitPrice = BigDecimal.ZERO;
+    @Column(name = "exit_price", nullable = true, precision = 18, scale = 8)
+    private BigDecimal exitPrice;
 
-    @Builder.Default
-    @Column(name = "pnl", nullable = false, precision = 18, scale = 8)
-    private BigDecimal pnl = BigDecimal.ZERO;
+    @Column(name = "pnl", nullable = true, precision = 18, scale = 8)
+    private BigDecimal pnl;
 
     /**
      * Поле-флаг закрытости сделки.
-     * На уровне БД колонка называется is_closed,
-     * но в Java-сущности свойство — closed.
      */
-    @Builder.Default
     @Column(name = "is_closed", nullable = false)
     private Boolean closed = false;
 
-    @Column(name = "take_profit_price", precision = 18, scale = 8)
+    @Column(name = "take_profit_price", precision = 18, scale = 8, nullable = true)
     private BigDecimal takeProfitPrice;
 
-    @Column(name = "stop_loss_price", precision = 18, scale = 8)
+    @Column(name = "stop_loss_price", precision = 18, scale = 8, nullable = true)
     private BigDecimal stopLossPrice;
 
-    @Column(name = "client_order_id", nullable = true, unique = true, length = 64)
-    private String clientOrderId;
+    @Column(name = "entry_client_order_id", length = 64, unique = true, nullable = true)
+    private String entryClientOrderId;
+
+    @Column(name = "exit_client_order_id", length = 64, unique = true, nullable = true)
+    private String exitClientOrderId;
 }

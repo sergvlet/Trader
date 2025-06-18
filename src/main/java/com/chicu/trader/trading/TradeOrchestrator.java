@@ -6,8 +6,10 @@ import com.chicu.trader.trading.entity.ProfitablePair;
 import com.chicu.trader.trading.entity.TradeLog;
 import com.chicu.trader.trading.risk.RiskManager;
 import com.chicu.trader.trading.service.PriceService;
-import com.chicu.trader.trading.service.ProfitablePairService;
 import com.chicu.trader.trading.service.binance.OrderService;
+import com.chicu.trader.trading.service.binance.client.BinanceRestClientFactory;
+import com.chicu.trader.trading.service.binance.client.model.ExchangeInfo;
+import com.chicu.trader.trading.util.QuantityAdjuster;
 import com.chicu.trader.trading.repository.TradeLogRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,62 +25,76 @@ import java.util.List;
 public class TradeOrchestrator {
 
     private final AiTradingSettingsService settingsService;
-    private final ProfitablePairService pairService;
-    private final RiskManager riskManager;
-    private final PriceService priceService;
-    private final OrderService orderService;
-    private final TradeLogRepository tradeLogRepository;
+    private final PriceService             priceService;
+    private final RiskManager               riskManager;
+    private final OrderService              orderService;
+    private final BinanceRestClientFactory  clientFactory;
+    private final TradeLogRepository        repo;
 
     public void apply(Long chatId, List<ProfitablePair> pairs) {
+        // 1) Настройки пользователя
         AiTradingSettings settings = settingsService.getSettingsOrThrow(chatId);
 
-        for (ProfitablePair pair : pairs) {
-            try {
-                String symbol = pair.getSymbol();
+        // 2) Один раз получаем все ограничения рынка
+        ExchangeInfo exchangeInfo =
+                clientFactory.getClient(chatId).getExchangeInfo();
 
-                BigDecimal entryPrice = priceService.getPrice(chatId, symbol);
-                if (entryPrice == null) {
+        for (ProfitablePair p : pairs) {
+            String symbol = p.getSymbol();
+            try {
+                // 3) Текущая цена
+                BigDecimal price = priceService.getPrice(chatId, symbol);
+                if (price == null) {
                     log.warn("Не удалось получить цену для {}", symbol);
                     continue;
                 }
 
-                // Вычисляем размер позиции по реальной сигнатуре
-                double positionSize = riskManager.calculatePositionSize(
-                        chatId,
-                        symbol,
-                        entryPrice.doubleValue(),
-                        settings
+                // 4) Размер позиции и корректировка по шагу
+                double rawSize = riskManager.calculatePositionSize(
+                        chatId, symbol, price.doubleValue(), settings
                 );
-                BigDecimal qty = BigDecimal.valueOf(positionSize);
-
-                // Ставим OCO ордер
-                BigDecimal tpPrice = entryPrice.multiply(
-                        BigDecimal.valueOf(1.0 + pair.getTakeProfitPct() / 100.0)
+                BigDecimal qty = QuantityAdjuster.adjustQuantity(
+                        symbol, BigDecimal.valueOf(rawSize), exchangeInfo
                 );
-                BigDecimal slPrice = entryPrice.multiply(
-                        BigDecimal.valueOf(1.0 - pair.getStopLossPct() / 100.0)
+                if (qty.compareTo(BigDecimal.ZERO) <= 0) {
+                    log.warn("После коррекции qty={} для {} слишком мал — пропускаем", rawSize, symbol);
+                    continue;
+                }
+
+                // 5) MARKET BUY → получаем clientOrderId
+                String entryId = orderService.placeMarketBuy(chatId, symbol, qty);
+
+                // 6) Рассчитываем TP/SL
+                BigDecimal tp = price.multiply(
+                        BigDecimal.valueOf(1 + p.getTakeProfitPct() / 100.0)
+                );
+                BigDecimal sl = price.multiply(
+                        BigDecimal.valueOf(1 - p.getStopLossPct() / 100.0)
                 );
 
-                orderService.placeOcoSell(chatId, symbol, qty, slPrice, tpPrice);
-
-                // Логируем сделку
-                TradeLog logEntry = TradeLog.builder()
+                // 7) Сохраняем вход в БД, включая TP/SL
+                TradeLog entryLog = TradeLog.builder()
                         .userChatId(chatId)
                         .symbol(symbol)
                         .entryTime(Instant.now())
-                        .entryPrice(BigDecimal.valueOf(entryPrice.doubleValue()))
-                        .quantity(BigDecimal.valueOf(qty.doubleValue()))
-                        .takeProfitPrice(tpPrice)
-                        .stopLossPrice(slPrice)
+                        .entryPrice(price)
+                        .quantity(qty)
+                        .entryClientOrderId(entryId)
+                        .takeProfitPrice(tp)
+                        .stopLossPrice(sl)
                         .closed(false)
                         .build();
-                tradeLogRepository.save(logEntry);
+                repo.save(entryLog);
 
-                log.info("🟢 BUY: {} qty={} entry={} TP={} SL={}",
-                        symbol, qty, entryPrice, tpPrice, slPrice);
+                log.info("🟢 BUY {} @{} qty={} entryId={}", symbol, price, qty, entryId);
 
-            } catch (Exception e) {
-                log.error("Ошибка обработки пары {}: {}", pair.getSymbol(), e.getMessage(), e);
+                // 8) Ставим OCO-ордер и получаем exitClientOrderId
+                String exitId = orderService.placeOcoSell(chatId, symbol, qty, sl, tp);
+
+                log.info("↗ OCO SELL {} SL={} TP={} exitId={}", symbol, sl, tp, exitId);
+
+            } catch (Exception ex) {
+                log.error("Ошибка при обработке {}: {}", symbol, ex.getMessage(), ex);
             }
         }
     }

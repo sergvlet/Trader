@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
@@ -20,7 +19,6 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
-
 
 @Slf4j
 public class BinanceHttpClient {
@@ -37,29 +35,26 @@ public class BinanceHttpClient {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final String       apiKey;
     private final String       secretKey;
-    // Чтобы другие могли достать URL для WS
     @Getter
     private final String       baseUrl;
 
     private ExchangeInfo exchangeInfo;
 
-    /** Market-data only */
+    /** Public market-data only */
     public BinanceHttpClient(String baseUrl) {
         this.apiKey    = null;
         this.secretKey = null;
-        this.baseUrl   = Objects.requireNonNull(baseUrl, "baseUrl");
+        this.baseUrl   = Objects.requireNonNull(baseUrl);
         log.info("BinanceHttpClient initialized (public): {}", baseUrl);
     }
 
     /** Private (signed) client */
     public BinanceHttpClient(String apiKey, String secretKey, String baseUrl) {
-        this.apiKey    = Objects.requireNonNull(apiKey,    "apiKey");
-        this.secretKey = Objects.requireNonNull(secretKey, "secretKey");
-        this.baseUrl   = Objects.requireNonNull(baseUrl,   "baseUrl");
+        this.apiKey    = Objects.requireNonNull(apiKey);
+        this.secretKey = Objects.requireNonNull(secretKey);
+        this.baseUrl   = Objects.requireNonNull(baseUrl);
         log.info("BinanceHttpClient initialized (private): {}", baseUrl);
     }
-
-    // --- Public API ---
 
     public ExchangeInfo getExchangeInfo() {
         try {
@@ -73,8 +68,7 @@ public class BinanceHttpClient {
 
     public BigDecimal getLastPrice(String symbol) {
         try {
-            String url  = baseUrl + PRICE_EP
-                    + "?symbol=" + URLEncoder.encode(symbol, StandardCharsets.UTF_8);
+            String url  = baseUrl + PRICE_EP + "?symbol=" + URLEncoder.encode(symbol, StandardCharsets.UTF_8);
             String json = restTemplate.getForObject(url, String.class);
             JsonNode node = objectMapper.readTree(json);
             return new BigDecimal(node.get("price").asText());
@@ -99,7 +93,10 @@ public class BinanceHttpClient {
         }
     }
 
-    public void placeMarketBuy(String symbol, BigDecimal qty) {
+    /**
+     * Market BUY: возвращает JSON-ответ Binance
+     */
+    public String placeMarketBuy(String symbol, BigDecimal qty) {
         requireKeys();
         Map<String,String> params = Map.of(
                 "symbol",   symbol,
@@ -107,11 +104,15 @@ public class BinanceHttpClient {
                 "type",     "MARKET",
                 "quantity", qty.stripTrailingZeros().toPlainString()
         );
-        sendSigned(HttpMethod.POST, ORDER_EP, params);
+        String json = sendSigned(HttpMethod.POST, ORDER_EP, params);
         log.info("MARKET BUY {} qty={}", symbol, qty);
+        return json;
     }
 
-    public void placeMarketSell(String symbol, BigDecimal qty) {
+    /**
+     * Market SELL: возвращает JSON-ответ Binance
+     */
+    public String placeMarketSell(String symbol, BigDecimal qty) {
         requireKeys();
         Map<String,String> params = Map.of(
                 "symbol",   symbol,
@@ -119,21 +120,21 @@ public class BinanceHttpClient {
                 "type",     "MARKET",
                 "quantity", qty.stripTrailingZeros().toPlainString()
         );
-        sendSigned(HttpMethod.POST, ORDER_EP, params);
+        String json = sendSigned(HttpMethod.POST, ORDER_EP, params);
         log.info("MARKET SELL {} qty={}", symbol, qty);
+        return json;
     }
 
     /**
-     * OCO SELL: сначала лимитный, при ошибке — рыночная продажа.
+     * OCO SELL: возвращает JSON-ответ Binance
      */
-    public void placeOcoSell(String symbol,
-                             BigDecimal qty,
-                             BigDecimal stopLossPrice,
-                             BigDecimal takeProfitPrice) {
+    public String placeOcoSell(String symbol,
+                               BigDecimal qty,
+                               BigDecimal stopLossPrice,
+                               BigDecimal takeProfitPrice) {
         requireKeys();
         if (exchangeInfo == null) getExchangeInfo();
 
-        // 1) Фильтры
         SymbolInfo info = exchangeInfo.getSymbols().stream()
                 .filter(s -> s.getSymbol().equals(symbol))
                 .findFirst()
@@ -142,39 +143,30 @@ public class BinanceHttpClient {
         BigDecimal tickSize = info.getFilters().stream()
                 .filter(f -> "PRICE_FILTER".equals(f.getFilterType()))
                 .map(SymbolFilter::getTickSize).map(BigDecimal::new)
-                .findFirst().orElseThrow(() -> new RuntimeException("PRICE_FILTER not found"));
+                .findFirst().orElseThrow();
         BigDecimal stepSize = info.getFilters().stream()
                 .filter(f -> "LOT_SIZE".equals(f.getFilterType()))
                 .map(SymbolFilter::getStepSize).map(BigDecimal::new)
-                .findFirst().orElseThrow(() -> new RuntimeException("LOT_SIZE not found"));
+                .findFirst().orElseThrow();
 
         int priceScale = tickSize.stripTrailingZeros().scale();
         int qtyScale   = stepSize.stripTrailingZeros().scale();
-        BigDecimal tick = tickSize.stripTrailingZeros();
 
-        // 2) Обрезаем qty
         BigDecimal quantity = qty.setScale(qtyScale, RoundingMode.DOWN);
         if (quantity.compareTo(stepSize) < 0) {
             throw new RuntimeException("Quantity too small for symbol " + symbol);
         }
 
-        // 3) Текущая цена
         BigDecimal lastPrice = getLastPrice(symbol);
-
-        // 4) Корректируем TP/SL под тики
         BigDecimal rawTP = takeProfitPrice.setScale(priceScale, RoundingMode.DOWN);
         BigDecimal rawSP = stopLossPrice  .setScale(priceScale, RoundingMode.UP);
+        BigDecimal tick   = tickSize.stripTrailingZeros();
+
         BigDecimal minTP = lastPrice.add(tick).setScale(priceScale, RoundingMode.DOWN);
         if (rawTP.compareTo(minTP) < 0) rawTP = minTP;
         BigDecimal maxSP = lastPrice.subtract(tick).setScale(priceScale, RoundingMode.UP);
         if (rawSP.compareTo(maxSP) > 0) rawSP = maxSP;
         BigDecimal rawSLimit = rawSP.subtract(tick).setScale(priceScale, RoundingMode.DOWN);
-
-        if (!(rawSLimit.compareTo(rawSP) < 0 && rawSP.compareTo(rawTP) < 0)) {
-            throw new RuntimeException(String.format(
-                    "Invalid OCO prices: TP=%s, stopPrice=%s, stopLimit=%s",
-                    rawTP, rawSP, rawSLimit));
-        }
 
         Map<String,String> params = new LinkedHashMap<>();
         params.put("symbol",             symbol);
@@ -186,22 +178,21 @@ public class BinanceHttpClient {
         params.put("stopLimitTimeInForce","GTC");
 
         try {
-            sendSigned(HttpMethod.POST, OCO_ORDER_EP, params);
+            String json = sendSigned(HttpMethod.POST, OCO_ORDER_EP, params);
             log.info("OCO SELL {} qty={} TP={} stopPrice={} stopLimit={}",
                     symbol, quantity, rawTP, rawSP, rawSLimit);
-
+            return json;
         } catch (HttpClientErrorException.BadRequest ex) {
             String body = ex.getResponseBodyAsString();
             if (body.contains("\"code\":-2010")) {
                 log.warn("OCO rejected ({}), executing MARKET SELL instead", body);
-                placeMarketSell(symbol, quantity);
-            } else {
-                throw ex;
+                return placeMarketSell(symbol, quantity);
             }
+            throw ex;
         }
     }
 
-    // --- Internal ---
+    // --------------------------
 
     private long getServerTime() {
         try {
@@ -215,7 +206,6 @@ public class BinanceHttpClient {
 
     private String sendSigned(HttpMethod method, String path, Map<String,String> params) {
         requireKeys();
-
         Map<String,String> q = new HashMap<>(params);
         q.put("timestamp",  String.valueOf(getServerTime()));
         q.put("recvWindow", String.valueOf(DEFAULT_WINDOW));
@@ -255,9 +245,11 @@ public class BinanceHttpClient {
             throw new RuntimeException("Ошибка generateSignature", e);
         }
     }
+
     public String startUserDataStream() {
         return sendSigned(HttpMethod.POST, "/api/v3/userDataStream", Map.of());
     }
+
     public void keepAliveUserDataStream(String listenKey) {
         sendSigned(HttpMethod.PUT, "/api/v3/userDataStream", Map.of("listenKey", listenKey));
     }

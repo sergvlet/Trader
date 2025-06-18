@@ -41,7 +41,14 @@ public interface TradeLogRepository extends JpaRepository<TradeLog, Long> {
     // Все открытые сделки для пользователя
     List<TradeLog> findAllByUserChatIdAndClosedFalse(Long chatId);
 
-    // Найти открытую сделку по clientOrderId
-    @Query("SELECT t FROM TradeLog t WHERE t.clientOrderId = :cid AND t.closed = false")
-    Optional<TradeLog> findOpenByClientOrderId(@Param("cid") String clientOrderId);
+    /**
+     * Найти открытую сделку по идентификатору клиентского ордера на входе.
+     */
+    @Query("""
+        SELECT t
+          FROM TradeLog t
+         WHERE t.entryClientOrderId = :cid
+           AND t.closed             = false
+        """)
+    Optional<TradeLog> findOpenByEntryClientOrderId(@Param("cid") String entryClientOrderId);
 }
