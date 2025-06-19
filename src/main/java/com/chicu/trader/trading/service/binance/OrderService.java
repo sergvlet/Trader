@@ -66,4 +66,12 @@ public class OrderService {
         }
         throw new IllegalStateException("Не удалось извлечь clientOrderId из ответа: " + raw);
     }
+    /** Получить статус OCO-ордера по его listId */
+    @SneakyThrows
+    public JsonNode getOcoStatus(Long chatId, String symbol, String listId) {
+        BinanceRestClient client = clientFactory.getClient(chatId);
+        // /api/v3/orderList?listId={listId}&symbol={symbol}
+        String raw = client.getOcoStatusRaw(symbol, listId);
+        return objectMapper.readTree(raw);
+    }
 }

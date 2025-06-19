@@ -23,12 +23,11 @@ public class TradingExitManager {
     private final OrderService       orderService;
     private final PriceService       priceService;
 
-    // Для примера — проценты TP/SL
-    private final double tpPct = 0.5;  // 0.5% take-profit
-    private final double slPct = 0.3;  // 0.3% stop-loss
+    // Проценты TP/SL из лога (брать не из here) игнорируем, т.к. ордеры OCO уже выставлены
 
     /**
-     * Планировщик выхода по TP/SL каждые 30 сек
+     * Проверяем открытые сделки каждые 30 секунд и закрываем MARKET SELL’ом,
+     * если OCO не сработал.
      */
     @Scheduled(fixedDelay = 30_000)
     public void monitorOpenTrades() {
@@ -37,78 +36,87 @@ public class TradingExitManager {
         for (TradeLog trade : openTrades) {
             try {
                 String symbol = trade.getSymbol();
-                Long chatId = trade.getUserChatId();
+                Long   chatId = trade.getUserChatId();
 
                 BigDecimal entryPrice = trade.getEntryPrice();
                 BigDecimal quantity   = trade.getQuantity();
 
-                BigDecimal tp = entryPrice
-                        .multiply(BigDecimal.valueOf(1.0 + tpPct / 100.0))
-                        .setScale(8, RoundingMode.HALF_UP);
-                BigDecimal sl = entryPrice
-                        .multiply(BigDecimal.valueOf(1.0 - slPct / 100.0))
-                        .setScale(8, RoundingMode.HALF_UP);
-
-                // получаем текущую цену через PriceService
+                // Текущая рыночная цена
                 BigDecimal currentPrice = priceService.getPrice(chatId, symbol);
                 if (currentPrice == null) {
-                    log.warn("Не удалось получить цену для {} при выходе", symbol);
+                    log.warn("Не удалось получить текущую цену для {}", symbol);
                     continue;
                 }
+
+                // Проверяем, не прошла ли цена TP/SL
+                BigDecimal tp = trade.getTakeProfitPrice().setScale(8, RoundingMode.HALF_UP);
+                BigDecimal sl = trade.getStopLossPrice().setScale(8, RoundingMode.HALF_UP);
 
                 boolean hitTp = currentPrice.compareTo(tp) >= 0;
                 boolean hitSl = currentPrice.compareTo(sl) <= 0;
 
                 if (hitTp || hitSl) {
-                    log.info("Закрываем сделку по {}: current={} TP={} SL={}",
-                            symbol, currentPrice, tp, sl);
+                    log.info("Закрываем {}: current={} TP={} SL={}", symbol, currentPrice, tp, sl);
 
-                    // маркет-селл нужного количества
-                    orderService.placeMarketSell(chatId, symbol, quantity);
+                    // MARKET SELL
+                    String exitClientOrderId = orderService.placeMarketSell(chatId, symbol, quantity);
 
+                    // Рассчитываем PnL
                     BigDecimal pnl = currentPrice
                             .subtract(entryPrice)
-                            .multiply(quantity);
+                            .multiply(quantity)
+                            .setScale(8, RoundingMode.HALF_UP);
 
+                    // Обновляем лог
                     trade.setClosed(true);
                     trade.setExitTime(Instant.now());
                     trade.setExitPrice(currentPrice);
+                    trade.setExitClientOrderId(exitClientOrderId);
                     trade.setPnl(pnl);
 
                     tradeLogRepository.save(trade);
+
+                    log.info("🔴 CLOSED {} exitId={} price={} pnl={}", symbol, exitClientOrderId, currentPrice, pnl);
                 }
             } catch (Exception e) {
-                log.error("Ошибка обработки сделки {}: {}",
-                        trade.getSymbol(), e.getMessage(), e);
+                log.error("Ошибка при мониторинге сделки {}: {}", trade.getSymbol(), e.getMessage(), e);
             }
         }
     }
 
     /**
-     * Принудительный выход — для Fallback-сценариев
+     * Принудительное закрытие сделки (можно вызвать вручную).
      */
-    public void forceExit(TradeLog trade, BigDecimal currentPrice) {
+    public void forceExit(TradeLog trade) {
         try {
             Long chatId = trade.getUserChatId();
-            BigDecimal quantity = trade.getQuantity();
+            String symbol = trade.getSymbol();
+            BigDecimal currentPrice = priceService.getPrice(chatId, symbol);
+            if (currentPrice == null) {
+                log.warn("Не удалось получить цену для forceExit {}", symbol);
+                return;
+            }
 
-            orderService.placeMarketSell(chatId, trade.getSymbol(), quantity);
+            BigDecimal quantity = trade.getQuantity();
+            String exitClientOrderId = orderService.placeMarketSell(chatId, symbol, quantity);
 
             BigDecimal pnl = currentPrice
                     .subtract(trade.getEntryPrice())
-                    .multiply(quantity);
+                    .multiply(quantity)
+                    .setScale(8, RoundingMode.HALF_UP);
 
             trade.setClosed(true);
             trade.setExitTime(Instant.now());
             trade.setExitPrice(currentPrice);
+            trade.setExitClientOrderId(exitClientOrderId);
             trade.setPnl(pnl);
 
             tradeLogRepository.save(trade);
 
-            log.info("✅ Fallback exit: {} по цене {}",
-                    trade.getSymbol(), currentPrice);
+            log.info("✅ Force exit {} exitId={} price={} pnl={}",
+                    symbol, exitClientOrderId, currentPrice, pnl);
         } catch (Exception e) {
-            log.error("❗ Ошибка при forceExit: {}", e.getMessage(), e);
+            log.error("Ошибка forceExit для {}: {}", trade.getSymbol(), e.getMessage(), e);
         }
     }
 }

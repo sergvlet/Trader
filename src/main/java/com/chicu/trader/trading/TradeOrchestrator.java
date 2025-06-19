@@ -73,7 +73,7 @@ public class TradeOrchestrator {
                 );
 
                 // 7) Сохраняем вход в БД, включая TP/SL
-                TradeLog entryLog = TradeLog.builder()
+                TradeLog logEntry = TradeLog.builder()
                         .userChatId(chatId)
                         .symbol(symbol)
                         .entryTime(Instant.now())
@@ -84,14 +84,27 @@ public class TradeOrchestrator {
                         .stopLossPrice(sl)
                         .closed(false)
                         .build();
-                repo.save(entryLog);
+                repo.save(logEntry);
 
                 log.info("🟢 BUY {} @{} qty={} entryId={}", symbol, price, qty, entryId);
 
                 // 8) Ставим OCO-ордер и получаем exitClientOrderId
                 String exitId = orderService.placeOcoSell(chatId, symbol, qty, sl, tp);
 
-                log.info("↗ OCO SELL {} SL={} TP={} exitId={}", symbol, sl, tp, exitId);
+                // 9) Фиксируем данные выхода сразу же:
+                BigDecimal exitPrice = priceService.getPrice(chatId, symbol);
+                Instant    exitTime  = Instant.now();
+                BigDecimal pnl       = exitPrice.subtract(price).multiply(qty);
+
+                logEntry.setExitClientOrderId(exitId);
+                logEntry.setExitTime(exitTime);
+                logEntry.setExitPrice(exitPrice);
+                logEntry.setPnl(pnl);
+                logEntry.setClosed(true);
+                repo.save(logEntry);
+
+                log.info("↗ EXIT {} exitId={} price={} pnl={}",
+                        symbol, exitId, exitPrice, pnl);
 
             } catch (Exception ex) {
                 log.error("Ошибка при обработке {}: {}", symbol, ex.getMessage(), ex);

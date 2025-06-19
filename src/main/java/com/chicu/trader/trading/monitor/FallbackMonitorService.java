@@ -26,7 +26,6 @@ public class FallbackMonitorService {
      */
     @Scheduled(fixedRate = 15_000)
     public void monitorOpenPositions() {
-        // здесь вызываем метод findAllByClosedFalse()
         List<TradeLog> openTrades = tradeLogRepository.findAllByClosedFalse();
 
         for (TradeLog trade : openTrades) {
@@ -45,7 +44,8 @@ public class FallbackMonitorService {
                 if (shouldExit) {
                     log.warn("⚠️ FallbackExit: символ={}, current={}, TP={}, SL={}",
                             trade.getSymbol(), currentPrice, tp, sl);
-                    tradingExitManager.forceExit(trade, currentPrice);
+                    // Теперь вызываем без передачи currentPrice — метод сам его возьмет
+                    tradingExitManager.forceExit(trade);
                 }
             } catch (Exception e) {
                 log.error("❗ Ошибка в FallbackMonitorService: {}", e.getMessage(), e);

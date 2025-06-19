@@ -1,8 +1,10 @@
 package com.chicu.trader.trading.service.binance.client;
 
 import com.chicu.trader.trading.service.binance.client.model.ExchangeInfo;
+import org.springframework.http.HttpMethod;
 
 import java.math.BigDecimal;
+import java.util.Map;
 
 public class BinanceRestClient {
 
@@ -53,5 +55,13 @@ public class BinanceRestClient {
                                   BigDecimal stopLossPrice,
                                   BigDecimal takeProfitPrice) {
         return http.placeOcoSell(symbol, quantity, stopLossPrice, takeProfitPrice);
+    }
+    public String getOcoStatusRaw(String symbol, String listId) {
+        // просто делегируем в HTTP-клиент
+        return http.sendSigned(
+                HttpMethod.GET,
+                "/api/v3/orderList",
+                Map.of("symbol", symbol, "listId", listId)
+        );
     }
 }

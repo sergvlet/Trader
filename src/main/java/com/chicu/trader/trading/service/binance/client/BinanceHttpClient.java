@@ -204,7 +204,7 @@ public class BinanceHttpClient {
         }
     }
 
-    private String sendSigned(HttpMethod method, String path, Map<String,String> params) {
+    String sendSigned(HttpMethod method, String path, Map<String, String> params) {
         requireKeys();
         Map<String,String> q = new HashMap<>(params);
         q.put("timestamp",  String.valueOf(getServerTime()));
