@@ -8,6 +8,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
@@ -25,14 +26,15 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class BinanceUserDataStreamService extends TextWebSocketHandler {
 
-    private static final long KEEPALIVE_INTERVAL_MS = 30 * 60 * 1_000L;
-
     private final BinanceHttpClient  httpClient;
     private final ObjectMapper       objectMapper;
     private final TradeLogRepository tradeLogRepo;
 
+    @Value("${binance.user-data-stream.keepalive-ms}")
+    private String keepAliveMs;
+
     private WebSocketSession ws;
-    private String            listenKey;
+    private String           listenKey;
 
     @PostConstruct
     public void start() {
@@ -61,11 +63,10 @@ public class BinanceUserDataStreamService extends TextWebSocketHandler {
         }
     }
 
-
     /**
      * Периодическое продление listenKey.
      */
-    @Scheduled(fixedDelayString = "#{T(java.lang.Long).valueOf(" + KEEPALIVE_INTERVAL_MS + ")}")
+    @Scheduled(fixedDelayString = "${binance.user-data-stream.keepalive-ms}")
     public void keepAlive() {
         if (listenKey == null) {
             return;
