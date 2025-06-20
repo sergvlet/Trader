@@ -18,6 +18,7 @@ import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -38,9 +39,10 @@ public class BinanceHttpClient {
     @Getter
     private final String       baseUrl;
 
+    // кеш правил LOT_SIZE: symbol → (stepSize, minQty)
+    private final Map<String, LotRule> lotRules = new ConcurrentHashMap<>();
     private ExchangeInfo exchangeInfo;
 
-    /** Public market-data only */
     public BinanceHttpClient(String baseUrl) {
         this.apiKey    = null;
         this.secretKey = null;
@@ -48,7 +50,6 @@ public class BinanceHttpClient {
         log.info("BinanceHttpClient initialized (public): {}", baseUrl);
     }
 
-    /** Private (signed) client */
     public BinanceHttpClient(String apiKey, String secretKey, String baseUrl) {
         this.apiKey    = Objects.requireNonNull(apiKey);
         this.secretKey = Objects.requireNonNull(secretKey);
@@ -56,14 +57,43 @@ public class BinanceHttpClient {
         log.info("BinanceHttpClient initialized (private): {}", baseUrl);
     }
 
-    public ExchangeInfo getExchangeInfo() {
+    private synchronized void ensureExchangeInfoLoaded() {
+        if (exchangeInfo != null) return;
         try {
             String json = restTemplate.getForObject(baseUrl + INFO_EP, String.class);
-            this.exchangeInfo = objectMapper.readValue(json, ExchangeInfo.class);
-            return exchangeInfo;
+            exchangeInfo = objectMapper.readValue(json, ExchangeInfo.class);
+            for (SymbolInfo s : exchangeInfo.getSymbols()) {
+                SymbolFilter f = s.getFilters().stream()
+                        .filter(x -> "LOT_SIZE".equals(x.getFilterType()))
+                        .findFirst()
+                        .orElse(null);
+                if (f != null) {
+                    BigDecimal step = new BigDecimal(f.getStepSize());
+                    BigDecimal min  = new BigDecimal(f.getMinQty());
+                    lotRules.put(s.getSymbol(), new LotRule(step, min));
+                }
+            }
+            log.info("Loaded LOT_SIZE rules for {} symbols", lotRules.size());
         } catch (Exception e) {
-            throw new RuntimeException("Ошибка getExchangeInfo", e);
+            throw new RuntimeException("Ошибка загрузки exchangeInfo", e);
         }
+    }
+
+    private BigDecimal normalizeQuantity(String symbol, BigDecimal rawQty) {
+        ensureExchangeInfoLoaded();
+        LotRule rule = lotRules.get(symbol);
+        if (rule == null) {
+            log.warn("No LOT_SIZE rule for {}, using raw qty={}", symbol, rawQty);
+            return rawQty;
+        }
+        BigDecimal disp = rawQty
+                .divide(rule.stepSize, 0, RoundingMode.DOWN)
+                .multiply(rule.stepSize);
+        if (disp.compareTo(rule.minQty) < 0) {
+            log.warn("Normalized qty {} < minQty {} for {}, will skip", disp, rule.minQty, symbol);
+            return BigDecimal.ZERO;
+        }
+        return disp.stripTrailingZeros();
     }
 
     public BigDecimal getLastPrice(String symbol) {
@@ -77,110 +107,93 @@ public class BinanceHttpClient {
         }
     }
 
-    public BigDecimal getBalance(String asset) {
-        requireKeys();
-        String json = sendSigned(HttpMethod.GET, ACCOUNT_EP, Collections.emptyMap());
-        try {
-            JsonNode arr = objectMapper.readTree(json).get("balances");
-            for (JsonNode b : arr) {
-                if (asset.equals(b.get("asset").asText())) {
-                    return new BigDecimal(b.get("free").asText());
-                }
-            }
-            return BigDecimal.ZERO;
-        } catch (Exception e) {
-            throw new RuntimeException("Ошибка getBalance", e);
-        }
-    }
-
-    /**
-     * Market BUY: возвращает JSON-ответ Binance
-     */
     public String placeMarketBuy(String symbol, BigDecimal qty) {
         requireKeys();
+        BigDecimal quantity = normalizeQuantity(symbol, qty);
+        if (quantity.signum() == 0) {
+            throw new IllegalArgumentException("Quantity after normalization is zero for " + symbol);
+        }
         Map<String,String> params = Map.of(
                 "symbol",   symbol,
                 "side",     "BUY",
                 "type",     "MARKET",
-                "quantity", qty.stripTrailingZeros().toPlainString()
+                "quantity", quantity.toPlainString()
         );
         String json = sendSigned(HttpMethod.POST, ORDER_EP, params);
-        log.info("MARKET BUY {} qty={}", symbol, qty);
+        log.info("MARKET BUY {} qty={}", symbol, quantity);
         return json;
     }
 
-    /**
-     * Market SELL: возвращает JSON-ответ Binance
-     */
     public String placeMarketSell(String symbol, BigDecimal qty) {
         requireKeys();
+        BigDecimal quantity = normalizeQuantity(symbol, qty);
+        if (quantity.signum() == 0) {
+            throw new IllegalArgumentException("Quantity after normalization is zero for " + symbol);
+        }
         Map<String,String> params = Map.of(
                 "symbol",   symbol,
                 "side",     "SELL",
                 "type",     "MARKET",
-                "quantity", qty.stripTrailingZeros().toPlainString()
+                "quantity", quantity.toPlainString()
         );
         String json = sendSigned(HttpMethod.POST, ORDER_EP, params);
-        log.info("MARKET SELL {} qty={}", symbol, qty);
+        log.info("MARKET SELL {} qty={}", symbol, quantity);
         return json;
     }
 
-    /**
-     * OCO SELL: возвращает JSON-ответ Binance
-     */
     public String placeOcoSell(String symbol,
-                               BigDecimal qty,
+                               BigDecimal rawQty,
                                BigDecimal stopLossPrice,
                                BigDecimal takeProfitPrice) {
         requireKeys();
-        if (exchangeInfo == null) getExchangeInfo();
+        ensureExchangeInfoLoaded();
 
         SymbolInfo info = exchangeInfo.getSymbols().stream()
                 .filter(s -> s.getSymbol().equals(symbol))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("Symbol not found: " + symbol));
 
-        BigDecimal tickSize = info.getFilters().stream()
+        // PRICE_FILTER для масштабирования цены
+        SymbolFilter pf = info.getFilters().stream()
                 .filter(f -> "PRICE_FILTER".equals(f.getFilterType()))
-                .map(SymbolFilter::getTickSize).map(BigDecimal::new)
                 .findFirst().orElseThrow();
-        BigDecimal stepSize = info.getFilters().stream()
-                .filter(f -> "LOT_SIZE".equals(f.getFilterType()))
-                .map(SymbolFilter::getStepSize).map(BigDecimal::new)
-                .findFirst().orElseThrow();
+        int priceScale = new BigDecimal(pf.getTickSize()).stripTrailingZeros().scale();
 
-        int priceScale = tickSize.stripTrailingZeros().scale();
-        int qtyScale   = stepSize.stripTrailingZeros().scale();
+        // LOT_SIZE для нормализации объёма
+        LotRule lr = lotRules.get(symbol);
+        int qtyScale = lr != null
+                ? lr.stepSize.stripTrailingZeros().scale()
+                : rawQty.stripTrailingZeros().scale();
 
-        BigDecimal quantity = qty.setScale(qtyScale, RoundingMode.DOWN);
-        if (quantity.compareTo(stepSize) < 0) {
+        BigDecimal quantity = normalizeQuantity(symbol, rawQty);
+        if (quantity.signum() == 0) {
             throw new RuntimeException("Quantity too small for symbol " + symbol);
         }
 
-        BigDecimal lastPrice = getLastPrice(symbol);
-        BigDecimal rawTP = takeProfitPrice.setScale(priceScale, RoundingMode.DOWN);
-        BigDecimal rawSP = stopLossPrice  .setScale(priceScale, RoundingMode.UP);
-        BigDecimal tick   = tickSize.stripTrailingZeros();
+        BigDecimal tick = new BigDecimal(pf.getTickSize());
+        BigDecimal tp  = takeProfitPrice.setScale(priceScale, RoundingMode.DOWN);
+        BigDecimal sp  = stopLossPrice  .setScale(priceScale, RoundingMode.UP);
 
-        BigDecimal minTP = lastPrice.add(tick).setScale(priceScale, RoundingMode.DOWN);
-        if (rawTP.compareTo(minTP) < 0) rawTP = minTP;
-        BigDecimal maxSP = lastPrice.subtract(tick).setScale(priceScale, RoundingMode.UP);
-        if (rawSP.compareTo(maxSP) > 0) rawSP = maxSP;
-        BigDecimal rawSLimit = rawSP.subtract(tick).setScale(priceScale, RoundingMode.DOWN);
+        BigDecimal last = getLastPrice(symbol);
+        BigDecimal minTP = last.add(tick).setScale(priceScale, RoundingMode.DOWN);
+        if (tp.compareTo(minTP) < 0) tp = minTP;
+        BigDecimal maxSP = last.subtract(tick).setScale(priceScale, RoundingMode.UP);
+        if (sp.compareTo(maxSP) > 0) sp = maxSP;
+        BigDecimal slimit = sp.subtract(tick).setScale(priceScale, RoundingMode.DOWN);
 
         Map<String,String> params = new LinkedHashMap<>();
         params.put("symbol",             symbol);
         params.put("side",               "SELL");
         params.put("quantity",           quantity.toPlainString());
-        params.put("price",              rawTP.toPlainString());
-        params.put("stopPrice",          rawSP.toPlainString());
-        params.put("stopLimitPrice",     rawSLimit.toPlainString());
+        params.put("price",              tp.toPlainString());
+        params.put("stopPrice",          sp.toPlainString());
+        params.put("stopLimitPrice",     slimit.toPlainString());
         params.put("stopLimitTimeInForce","GTC");
 
         try {
             String json = sendSigned(HttpMethod.POST, OCO_ORDER_EP, params);
             log.info("OCO SELL {} qty={} TP={} stopPrice={} stopLimit={}",
-                    symbol, quantity, rawTP, rawSP, rawSLimit);
+                    symbol, quantity, tp, sp, slimit);
             return json;
         } catch (HttpClientErrorException.BadRequest ex) {
             String body = ex.getResponseBodyAsString();
@@ -192,7 +205,7 @@ public class BinanceHttpClient {
         }
     }
 
-    // --------------------------
+    // ---------- подписанные запросы, время, сигнатура ----------
 
     private long getServerTime() {
         try {
@@ -209,19 +222,15 @@ public class BinanceHttpClient {
         Map<String,String> q = new HashMap<>(params);
         q.put("timestamp",  String.valueOf(getServerTime()));
         q.put("recvWindow", String.valueOf(DEFAULT_WINDOW));
-
         String query = q.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> e.getKey() + "=" +
                         URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8))
                 .collect(Collectors.joining("&"));
-
         String sig = generateSignature(secretKey, query);
         String url = baseUrl + path + "?" + query + "&signature=" + sig;
-
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-MBX-APIKEY", apiKey);
-
         ResponseEntity<String> resp =
                 restTemplate.exchange(url, method, new HttpEntity<>(headers), String.class);
         return resp.getBody();
@@ -246,11 +255,52 @@ public class BinanceHttpClient {
         }
     }
 
+    // === вспомогательный класс для LOT_SIZE ===
+    private static class LotRule {
+        final BigDecimal stepSize;
+        final BigDecimal minQty;
+        LotRule(BigDecimal stepSize, BigDecimal minQty) {
+            this.stepSize = stepSize;
+            this.minQty   = minQty;
+        }
+    }
+
+    // === userDataStream ===
+
     public String startUserDataStream() {
+        requireKeys();
         return sendSigned(HttpMethod.POST, "/api/v3/userDataStream", Map.of());
     }
 
     public void keepAliveUserDataStream(String listenKey) {
+        requireKeys();
         sendSigned(HttpMethod.PUT, "/api/v3/userDataStream", Map.of("listenKey", listenKey));
+    }
+    /** Получить полный ответ /api/v3/exchangeInfo и десериализовать в модель */
+    public ExchangeInfo getExchangeInfo() {
+        try {
+            String json = restTemplate.getForObject(baseUrl + "/api/v3/exchangeInfo", String.class);
+            this.exchangeInfo = objectMapper.readValue(json, ExchangeInfo.class);
+            return exchangeInfo;
+        } catch (Exception e) {
+            throw new RuntimeException("Ошибка getExchangeInfo", e);
+        }
+    }
+
+    /** Получить баланс по активу из /api/v3/account.balances */
+    public BigDecimal getBalance(String asset) {
+        requireKeys();
+        String json = sendSigned(HttpMethod.GET, "/api/v3/account", Collections.emptyMap());
+        try {
+            JsonNode arr = objectMapper.readTree(json).get("balances");
+            for (JsonNode b : arr) {
+                if (asset.equals(b.get("asset").asText())) {
+                    return new BigDecimal(b.get("free").asText());
+                }
+            }
+            return BigDecimal.ZERO;
+        } catch (Exception e) {
+            throw new RuntimeException("Ошибка getBalance", e);
+        }
     }
 }
