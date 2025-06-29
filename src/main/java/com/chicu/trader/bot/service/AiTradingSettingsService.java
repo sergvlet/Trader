@@ -249,4 +249,7 @@ public class AiTradingSettingsService {
         return settingsRepo.save(settings);
     }
 
+    public Optional<AiTradingSettings> findByChatId(Long chatId) {
+        return settingsRepo.findById(chatId);
+    }
 }

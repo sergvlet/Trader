@@ -1,6 +1,7 @@
 package com.chicu.trader.trading.ml;
 
-import com.chicu.trader.trading.entity.Candle;
+
+import com.chicu.trader.trading.model.Candle;
 import lombok.*;
 
 import java.util.List;

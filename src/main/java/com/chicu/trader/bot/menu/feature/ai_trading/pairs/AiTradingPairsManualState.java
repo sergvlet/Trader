@@ -31,24 +31,25 @@ public class AiTradingPairsManualState implements MenuState {
 
     @Override
     public SendMessage render(Long chatId) {
-
+        // Получаем все пары и активные символы
         List<ProfitablePair> allPairs = profitablePairService.getAllPairs(chatId);
-        Set<String> activePairs = profitablePairService.getActivePairs(chatId)
+        Set<String> activeSymbols = profitablePairService.getActivePairs(chatId)
                 .stream().map(ProfitablePair::getSymbol).collect(Collectors.toSet());
 
-        List<List<InlineKeyboardButton>> buttons = new ArrayList<>();
-
+        // Строим кнопки: для каждой пары – своя строка
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         for (ProfitablePair pair : allPairs) {
-            boolean isActive = activePairs.contains(pair.getSymbol());
-            buttons.add(List.of(
+            boolean active = activeSymbols.contains(pair.getSymbol());
+            rows.add(List.of(
                     InlineKeyboardButton.builder()
-                            .text((isActive ? "✅ " : "➖ ") + pair.getSymbol())
+                            .text((active ? "✅ " : "➖ ") + pair.getSymbol())
                             .callbackData("toggle:" + pair.getSymbol())
                             .build()
             ));
         }
 
-        buttons.add(List.of(
+        // Кнопка «Назад»
+        rows.add(List.of(
                 InlineKeyboardButton.builder()
                         .text("‹ Назад")
                         .callbackData(MenuService.BACK)
@@ -58,7 +59,7 @@ public class AiTradingPairsManualState implements MenuState {
         return SendMessage.builder()
                 .chatId(chatId.toString())
                 .text("⚙ Выберите торговые пары:")
-                .replyMarkup(InlineKeyboardMarkup.builder().keyboard(buttons).build())
+                .replyMarkup(InlineKeyboardMarkup.builder().keyboard(rows).build())
                 .build();
     }
 
@@ -72,13 +73,14 @@ public class AiTradingPairsManualState implements MenuState {
         String data = update.getCallbackQuery().getData();
 
         if (data.startsWith("toggle:")) {
-            String symbol = data.substring(7);
+            String symbol = data.substring("toggle:".length());
+            // Переключаем статус пары в БД
             profitablePairService.togglePair(chatId, symbol);
-
-            // ⚠ БОЛЬШЕ НЕ НУЖНО: tradingExecutor.updateExecutor()
-            // Executor подхватит изменения сам на следующем цикле
+            // остаёмся в том же состоянии, чтобы сразу увидеть обновлённый список
+            return name();
         }
 
-        return name();
+        // Меню-сервис обработает MenuService.BACK и вернёт предыдущее состояние
+        return data;
     }
 }

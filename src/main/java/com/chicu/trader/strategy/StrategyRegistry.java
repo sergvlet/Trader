@@ -25,6 +25,7 @@ public class StrategyRegistry {
     public void init() {
         registry.put(StrategyType.ML_MODEL, mlModelStrategy);
         registry.put(StrategyType.RSI_EMA, rsiEmaStrategy);
+        registry.put(StrategyType.SCALPING, rsiEmaStrategy);
     }
 
     public TradeStrategy getStrategy(StrategyType type) {

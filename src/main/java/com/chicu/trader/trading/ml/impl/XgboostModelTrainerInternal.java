@@ -12,7 +12,6 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -29,20 +28,16 @@ public class XgboostModelTrainerInternal implements ModelTrainerInternal {
             int[]      y = ds.getY();
             int        n = x.length;
 
-            // 1) Собираем LabeledPoint-ы
+            // Формируем LabeledPoint (dense формат)
             List<LabeledPoint> points = new ArrayList<>(n);
             for (int i = 0; i < n; i++) {
                 float   label    = (float) y[i];
                 float[] features = toFloatArray(x[i]);
-                // для dense: размер — features.length, пустые индексы
-                points.add(new LabeledPoint(label, features.length, new int[0], features));
+                points.add(new LabeledPoint(label, features.length, null, features));
             }
-            Iterator<LabeledPoint> iter = points.iterator();
 
-            // 2) Создаём DMatrix; вторым параметром строка для missing
-            DMatrix trainMat = new DMatrix(iter, "nan");
+            DMatrix trainMat = new DMatrix(points.iterator(), "nan");
 
-            // 3) Параметры модели
             Map<String, Object> params = Map.of(
                     "eta",         0.1f,
                     "max_depth",   6,
@@ -50,10 +45,9 @@ public class XgboostModelTrainerInternal implements ModelTrainerInternal {
                     "eval_metric", "auc"
             );
 
-            // 4) Обучение
-            Booster booster = XGBoost.train(trainMat, params, 100, null, null, null);
+            // Исправленный вызов обучения (пустая Map вместо null!)
+            Booster booster = XGBoost.train(trainMat, params, 100, Map.of(), null, null);
 
-            // 5) Предсказания на обучающей выборке
             float[][] preds = booster.predict(trainMat);
             double correct = 0;
             for (int i = 0; i < preds.length; i++) {
@@ -62,12 +56,11 @@ public class XgboostModelTrainerInternal implements ModelTrainerInternal {
             }
             double accuracy = correct / n;
 
-            // 6) Экспорт модели в ONNX-формат
-            byte[] onnx = booster.toByteArray();
+            byte[] modelBytes = booster.toByteArray();
             long elapsed = System.currentTimeMillis() - start;
 
             return TrainedModel.builder()
-                    .onnxBytes(onnx)
+                    .onnxBytes(modelBytes)
                     .accuracy(accuracy)
                     .auc(accuracy)
                     .precision(accuracy)
@@ -79,6 +72,7 @@ public class XgboostModelTrainerInternal implements ModelTrainerInternal {
             throw new MlTrainingException("Ошибка XGBoost: " + e.getMessage(), e);
         }
     }
+
 
     private static float[] toFloatArray(double[] arr) {
         float[] f = new float[arr.length];

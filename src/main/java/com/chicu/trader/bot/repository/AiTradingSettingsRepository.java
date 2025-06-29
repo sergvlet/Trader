@@ -12,4 +12,5 @@ public interface AiTradingSettingsRepository extends JpaRepository<AiTradingSett
      Optional<AiTradingSettings> findByUserChatId(Long chatId);
 
     List<AiTradingSettings> findByIsRunningTrue();
+
 }

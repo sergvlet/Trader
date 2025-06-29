@@ -1,6 +1,7 @@
 package com.chicu.trader.trading.repository;
 
-import com.chicu.trader.trading.entity.Candle;
+
+import com.chicu.trader.trading.model.Candle;
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 

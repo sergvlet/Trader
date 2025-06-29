@@ -1,33 +1,29 @@
-// src/main/java/com/chicu/trader/trading/model/Candle.java
 package com.chicu.trader.trading.model;
 
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Данные одной свечи (клина) с биржи.
- */
+@Entity
 @Builder
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class Candle {
-    /** Торговая пара, например "BTCUSDT" */
+    @Id
+    private String id; // обязательно нужно поле для ID!
+
     private String symbol;
-    /** Время открытия свечи в миллисекундах Unix epoch */
-    private long   openTime;
-    /** Цена открытия */
+    private long openTime;
     private double open;
-    /** Максимальная цена */
     private double high;
-    /** Минимальная цена */
     private double low;
-    /** Цена закрытия */
     private double close;
-    /** Объем */
     private double volume;
-    /** Время закрытия свечи в миллисекундах Unix epoch */
-    private long   closeTime;
+    private long closeTime;
+    private String timeframe;
+    private long timestamp;
 }

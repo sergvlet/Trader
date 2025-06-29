@@ -1,8 +1,9 @@
 package com.chicu.trader.trading.ml.impl;
 
-import com.chicu.trader.trading.entity.Candle;
+
 import com.chicu.trader.trading.ml.DataLoader;
 import com.chicu.trader.trading.ml.MlTrainingException;
+import com.chicu.trader.trading.model.Candle;
 import com.chicu.trader.trading.repository.CandleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Primary;

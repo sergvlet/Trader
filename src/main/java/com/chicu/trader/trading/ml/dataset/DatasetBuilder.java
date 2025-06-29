@@ -1,8 +1,9 @@
 package com.chicu.trader.trading.ml.dataset;
 
-import com.chicu.trader.trading.entity.Candle;
+
 import com.chicu.trader.trading.ml.MlTrainingException;
 import com.chicu.trader.trading.ml.features.FeatureExtractor;
+import com.chicu.trader.trading.model.Candle;
 import lombok.AllArgsConstructor;
 
 import java.util.ArrayList;
@@ -33,8 +34,8 @@ public class DatasetBuilder {
             double[] feats = extractor.extract(window);
             X.add(feats);
 
-            double curr = allCandles.get(i).getClose().doubleValue();
-            double next = allCandles.get(i + 1).getClose().doubleValue();
+            double curr = allCandles.get(i).getClose();
+            double next = allCandles.get(i + 1).getClose();
             y.add(next > curr ? 1 : 0);
         }
 

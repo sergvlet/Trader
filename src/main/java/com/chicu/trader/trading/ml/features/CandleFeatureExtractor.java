@@ -1,6 +1,6 @@
 package com.chicu.trader.trading.ml.features;
 
-import com.chicu.trader.trading.entity.Candle;
+import com.chicu.trader.trading.model.Candle;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.IntStream;
 
 /**
  * Из списка свечей строит обучающие примеры (фичи + метки).
@@ -25,8 +24,8 @@ public class CandleFeatureExtractor {
             // текущий бар и предыдущие
             List<Candle> windowCandles = candles.subList(i - window, i);
             BigDecimal ma = movingAverage(windowCandles);
-            BigDecimal currClose = candles.get(i).getClose();
-            BigDecimal nextClose = candles.get(i + 1).getClose();
+            BigDecimal currClose = BigDecimal.valueOf(candles.get(i).getClose());
+            BigDecimal nextClose = BigDecimal.valueOf(candles.get(i + 1).getClose());
 
             // фичи и метка: будет рост (1) или падение (0)
             int label = nextClose.compareTo(currClose) > 0 ? 1 : 0;
@@ -36,8 +35,9 @@ public class CandleFeatureExtractor {
     }
 
     private static BigDecimal movingAverage(List<Candle> list) {
+        // переводим каждый close в BigDecimal, суммируем и делим на размер окна
         BigDecimal sum = list.stream()
-                .map(Candle::getClose)
+                .map(c -> BigDecimal.valueOf(c.getClose()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         return sum.divide(BigDecimal.valueOf(list.size()), BigDecimal.ROUND_HALF_UP);
     }

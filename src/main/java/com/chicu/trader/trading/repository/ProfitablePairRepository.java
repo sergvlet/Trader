@@ -13,5 +13,9 @@ public interface ProfitablePairRepository extends JpaRepository<ProfitablePair, 
     // ДОБАВЛЯЕМ ЭТОТ МЕТОД
     List<ProfitablePair> findByUserChatIdAndActiveTrue(Long chatId);
 
-    Optional<ProfitablePair> findByUserChatIdAndSymbol(Long chatId, String symbol);
+    List<ProfitablePair> findByUserChatIdAndSymbol(Long chatId, String symbol);
+
+    List<ProfitablePair> findAllByUserChatIdAndSymbol(Long chatId, String symbol);
+
+
 }
