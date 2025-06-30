@@ -1,8 +1,6 @@
-// src/main/java/com/chicu/trader/bot/menu/feature/ai_trading/AiTradingPairsState.java
 package com.chicu.trader.bot.menu.feature.ai_trading.pairs;
 
 import com.chicu.trader.bot.menu.core.MenuState;
-import com.chicu.trader.bot.service.AiTradingSettingsService;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -11,83 +9,53 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 
 import java.util.List;
 
-@Component
+@Component("ai_trading_pairs")
 public class AiTradingPairsState implements MenuState {
 
-    private final AiTradingSettingsService settingsService;
+    private final InlineKeyboardMarkup keyboard;
 
-    public AiTradingPairsState(AiTradingSettingsService settingsService) {
-        this.settingsService = settingsService;
+    public AiTradingPairsState() {
+        InlineKeyboardButton fromList = InlineKeyboardButton.builder()
+                .text("📋 Выбрать из списка")
+                .callbackData("pairs_from_list")
+                .build();
+
+        InlineKeyboardButton back = InlineKeyboardButton.builder()
+                .text("‹ Назад")
+                .callbackData("pairs_back")
+                .build();
+
+        this.keyboard = InlineKeyboardMarkup.builder()
+                .keyboard(List.of(
+                        List.of(fromList),
+                        List.of(back)
+                ))
+                .build();
     }
 
     @Override
     public String name() {
-        return "ai_trading_settings_pairs";
+        return "ai_trading_pairs";
     }
 
     @Override
     public SendMessage render(Long chatId) {
-        InlineKeyboardButton manual = InlineKeyboardButton.builder()
-            .text("✏️ Ввести вручную")
-            .callbackData("pairs_manual")
-            .build();
-        InlineKeyboardButton list = InlineKeyboardButton.builder()
-            .text("📋 Из списка")
-            .callbackData("pairs_list")
-            .build();
-        InlineKeyboardButton ai = InlineKeyboardButton.builder()
-            .text("🤖 AI-подбор")
-            .callbackData("pairs_ai")
-            .build();
-        InlineKeyboardButton def = InlineKeyboardButton.builder()
-            .text("🔄 По умолчанию")
-            .callbackData("pairs_default")
-            .build();
-        InlineKeyboardButton back = InlineKeyboardButton.builder()
-            .text("‹ Назад")
-            .callbackData("pairs_back")
-            .build();
-
-        InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder()
-            .keyboard(List.of(
-                List.of(manual, list),
-                List.of(ai, def),
-                List.of(back)
-            ))
-            .build();
-
-        String current = settingsService.getOrCreate(chatId).getSymbols();
-        String text = "*Пары для торговли*\n"
-            + "Текущие: `" + (current == null || current.isBlank() ? "—" : current) + "`\n\n"
-            + "Выберите способ задания:";
-
         return SendMessage.builder()
-            .chatId(chatId.toString())
-            .text(text)
-            .parseMode("Markdown")
-            .replyMarkup(kb)
-            .build();
+                .chatId(chatId.toString())
+                .text("Выберите способ изменения торговых пар:")
+                .replyMarkup(keyboard)
+                .build();
     }
 
     @Override
     public String handleInput(Update update) {
-        String data   = update.getCallbackQuery().getData();
-        Long   chatId = update.getCallbackQuery().getMessage().getChatId();
+        if (!update.hasCallbackQuery()) return name();
 
-        switch (data) {
-            case "pairs_manual":
-                return "ai_trading_pairs_manual";
-            case "pairs_list":
-                return "ai_trading_pairs_list";
-            case "pairs_ai":
-                return "ai_trading_pairs_ai";
-            case "pairs_default":
-                settingsService.resetSymbolsDefaults(chatId);
-                return name();
-            case "pairs_back":
-                return "ai_trading_settings";
-            default:
-                return name();
-        }
+        String data = update.getCallbackQuery().getData();
+        return switch (data) {
+            case "pairs_from_list" -> "ai_trading_pairs_list"; // переход к списку
+            case "pairs_back"      -> "ai_trading_settings";   // назад в настройки
+            default                -> name();
+        };
     }
 }

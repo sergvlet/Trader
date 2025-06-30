@@ -17,30 +17,6 @@ public class MenuSessionService {
         return menuMessages.get(chatId);
     }
 
-    /** Удаляет notice-уведомление для пользователя (если нужно) */
-    public Optional<BotApiMethod<?>> popNotice(Long chatId) {
-        // ваша реализация...
-        return Optional.empty();
-    }
 
-    /**
-     * Регистрирует в службу, что меню этого пользователя было отправлено
-     * и находится под этим messageId.
-     * (Используется в интеграционных тестах.)
-     */
-    public void createMenuMessage(Long chatId, int messageId) {
-        menuMessages.put(chatId, messageId);
-    }
 
-    // Для постраничного вывода списка пар
-    private final Map<Long, Integer> pairsPageMap = new ConcurrentHashMap<>();
-
-    /** Получить текущую страницу списка пар */
-    public int getPairsPage(Long chatId) {
-        return pairsPageMap.getOrDefault(chatId, 0);
-    }
-    /** Установить страницу списка пар */
-    public void setPairsPage(Long chatId, int page) {
-        pairsPageMap.put(chatId, page);
-    }
 }

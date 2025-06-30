@@ -19,8 +19,10 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -252,4 +254,15 @@ public class AiTradingSettingsService {
     public Optional<AiTradingSettings> findByChatId(Long chatId) {
         return settingsRepo.findById(chatId);
     }
+    private final Map<Long, Integer> currentPairPages = new ConcurrentHashMap<>();
+
+    public int getCurrentPairPage(Long chatId) {
+        return currentPairPages.getOrDefault(chatId, 0);
+    }
+
+    public void setCurrentPairPage(Long chatId, int page) {
+        currentPairPages.put(chatId, page);
+    }
+
+
 }

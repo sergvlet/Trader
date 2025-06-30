@@ -28,7 +28,7 @@ public class AiTradingSettingsState implements MenuState {
 
         InlineKeyboardButton pairsBtn = InlineKeyboardButton.builder()
                 .text("🔧 Изменить пары")
-                .callbackData("ai_trading_settings_pairs")
+                .callbackData("ai_trading_pairs")  // ✅ правильное имя состояния
                 .build();
 
         InlineKeyboardButton topNBtn = InlineKeyboardButton.builder()
@@ -126,7 +126,7 @@ public class AiTradingSettingsState implements MenuState {
                         List.of(maxPosBtn, cooldownBtn),
                         List.of(slippageBtn, orderTypeBtn),
                         List.of(notificationsBtn, modelVersionBtn),
-                        List.of(strategyBtn, leverageBtn), // 🔧 стратегия + плечо
+                        List.of(strategyBtn, leverageBtn),
                         List.of(backtestBtn),
                         List.of(candlesLimitBtn, mlStatsBtn),
                         List.of(testTrainBtn),
@@ -160,7 +160,7 @@ public class AiTradingSettingsState implements MenuState {
         return switch (data) {
             case "network_settings" -> "network_settings";
             case "ai_trading_settings_tp_sl" -> "ai_trading_settings_tp_sl";
-            case "ai_trading_settings_pairs" -> "ai_trading_settings_pairs";
+            case "ai_trading_pairs" -> "ai_trading_pairs"; // 🔧 теперь соответствует правильному состоянию
             case "ai_trading_settings_topn" -> "ai_trading_settings_topn";
             case "ai_trading_settings_risk" -> "ai_trading_settings_risk";
             case "ai_trading_settings_drawdown" -> "ai_trading_settings_drawdown";
@@ -171,7 +171,7 @@ public class AiTradingSettingsState implements MenuState {
             case "ai_trading_settings_order_type" -> "ai_trading_settings_order_type";
             case "ai_trading_settings_notifications_toggle" -> "ai_trading_settings_notifications_toggle";
             case "ai_trading_settings_model_version" -> "ai_trading_settings_model_version";
-            case "ai_trading_settings_strategy" -> "ai_trading_settings_strategy"; // ✅ стратегия
+            case "ai_trading_settings_strategy" -> "ai_trading_settings_strategy";
             case "ai_trading_settings_leverage" -> "ai_trading_settings_leverage";
             case "ai_trading_settings_backtesting" -> "ai_trading_settings_backtesting";
             case "ai_trading_settings_cached_candles_limit" -> "ai_trading_settings_cached_candles_limit";
