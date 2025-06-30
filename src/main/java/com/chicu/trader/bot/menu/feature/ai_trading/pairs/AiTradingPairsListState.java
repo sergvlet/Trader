@@ -1,10 +1,10 @@
 package com.chicu.trader.bot.menu.feature.ai_trading.pairs;
 
-import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.menu.core.MenuState;
-import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.bot.service.BinancePairService;
 import com.chicu.trader.bot.service.UserSettingsService;
+import com.chicu.trader.trading.entity.ProfitablePair;
+import com.chicu.trader.trading.service.ProfitablePairService;
 import com.chicu.trader.dto.BinancePairDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -14,17 +14,19 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
 public class AiTradingPairsListState implements MenuState {
 
-    private final AiTradingSettingsService settingsService;
     private final UserSettingsService userSettingsService;
     private final BinancePairService binancePairService;
+    private final ProfitablePairService profitablePairService;
 
     private static final int PAGE_SIZE = 40;
+    private final Map<Long, Integer> userPageMap = new ConcurrentHashMap<>();
 
     @Override
     public String name() {
@@ -33,11 +35,12 @@ public class AiTradingPairsListState implements MenuState {
 
     @Override
     public SendMessage render(Long chatId) {
-        AiTradingSettings settings = settingsService.getOrCreate(chatId);
         boolean isTestnet = "TEST".equalsIgnoreCase(userSettingsService.getMode(chatId));
-        Set<String> selectedSymbols = new HashSet<>(Arrays.asList(settings.getSymbols().split(",")));
+        Set<String> selected = profitablePairService.getActivePairs(chatId).stream()
+                .map(ProfitablePair::getSymbol)
+                .collect(Collectors.toSet());
 
-        int currentPage = settingsService.getCurrentPairPage(chatId);
+        int currentPage = userPageMap.getOrDefault(chatId, 0);
         List<BinancePairDto> allPairs = binancePairService.getAllAvailablePairs(isTestnet);
         allPairs.sort(Comparator.comparingDouble(BinancePairDto::getPrice).reversed());
 
@@ -49,13 +52,12 @@ public class AiTradingPairsListState implements MenuState {
 
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
-        // Кнопки по 4 в ряд, только символ пары с галочкой
         for (int i = 0; i < pagePairs.size(); i += 4) {
             List<InlineKeyboardButton> row = new ArrayList<>();
             for (int j = 0; j < 4 && i + j < pagePairs.size(); j++) {
                 BinancePairDto pair = pagePairs.get(i + j);
-                boolean selected = selectedSymbols.contains(pair.getSymbol());
-                String label = (selected ? "✅ " : "") + pair.getSymbol();
+                boolean isSelected = selected.contains(pair.getSymbol());
+                String label = (isSelected ? "✅ " : "") + pair.getSymbol();
                 row.add(InlineKeyboardButton.builder()
                         .text(label)
                         .callbackData("pair_toggle_" + pair.getSymbol())
@@ -64,7 +66,7 @@ public class AiTradingPairsListState implements MenuState {
             rows.add(row);
         }
 
-        // Навигация по страницам
+        // Навигация
         List<InlineKeyboardButton> navRow = new ArrayList<>();
         if (currentPage > 0) {
             navRow.add(InlineKeyboardButton.builder()
@@ -82,29 +84,26 @@ public class AiTradingPairsListState implements MenuState {
                     .callbackData("pair_page_" + (currentPage + 1))
                     .build());
         }
-        if (!navRow.isEmpty()) {
-            rows.add(navRow);
-        }
+        if (!navRow.isEmpty()) rows.add(navRow);
 
-        // Сохранить и Назад
-        rows.add(List.of(
-                InlineKeyboardButton.builder().text("💾 Сохранить").callbackData("pair_save").build()
-        ));
-        rows.add(List.of(
-                InlineKeyboardButton.builder().text("‹ Назад").callbackData("ai_trading_settings_pairs").build()
-        ));
+        rows.add(List.of(InlineKeyboardButton.builder()
+                .text("💾 Сохранить")
+                .callbackData("pair_save")
+                .build()));
+        rows.add(List.of(InlineKeyboardButton.builder()
+                .text("‹ Назад")
+                .callbackData("ai_trading_settings_pairs")
+                .build()));
 
-        // Формируем описание с ценой и ростом
-        StringBuilder info = new StringBuilder();
-        info.append("*📊 Выберите пары для AI торговли:*\n\n");
-        if (selectedSymbols.isEmpty()) {
+        // Текст
+        StringBuilder info = new StringBuilder("*📊 Выберите пары для AI торговли:*\n\n");
+        if (selected.isEmpty()) {
             info.append("_Пары не выбраны._\n\n");
         } else {
-            info.append("Выбрано: `" + String.join(", ", selectedSymbols) + "`\n\n");
+            info.append("✅ *Выбрано:* `" + String.join(", ", selected) + "`\n\n");
         }
 
         info.append("*Страница " + (currentPage + 1) + "/" + totalPages + "*\n");
-
         for (BinancePairDto pair : pagePairs) {
             String arrow = pair.getPriceChange() > 0 ? "📈" : pair.getPriceChange() < 0 ? "📉" : "➖";
             info.append(String.format("%s `%s` — `$%.2f` (%+.2f%%)\n",
@@ -125,21 +124,16 @@ public class AiTradingPairsListState implements MenuState {
         String data = update.getCallbackQuery().getData();
         Long chatId = update.getCallbackQuery().getMessage().getChatId();
 
-        AiTradingSettings settings = settingsService.getOrCreate(chatId);
-        Set<String> selected = new HashSet<>(Arrays.asList(settings.getSymbols().split(",")));
-
         if (data.startsWith("pair_toggle_")) {
             String symbol = data.replace("pair_toggle_", "");
-            if (selected.contains(symbol)) selected.remove(symbol);
-            else selected.add(symbol);
-            settingsService.updateSymbols(chatId, String.join(",", selected));
-            return name(); // остаёмся на той же странице
+            profitablePairService.togglePair(chatId, symbol);
+            return name();
         }
 
         if (data.startsWith("pair_page_")) {
             int page = Integer.parseInt(data.replace("pair_page_", ""));
-            settingsService.setCurrentPairPage(chatId, page);
-            return name(); // остаёмся на этом же состоянии, но страница меняется
+            userPageMap.put(chatId, page);
+            return name();
         }
 
         if ("pair_save".equals(data)) return "ai_trading_settings";

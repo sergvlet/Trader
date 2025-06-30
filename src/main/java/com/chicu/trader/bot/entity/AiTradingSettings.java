@@ -6,7 +6,8 @@ import lombok.*;
 
 @Entity
 @Table(name = "ai_trading_settings")
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -16,7 +17,7 @@ public class AiTradingSettings {
     @Column(name = "chat_id")
     private Long chatId;
 
-    @OneToOne
+    @OneToOne(fetch = FetchType.LAZY)
     @MapsId
     @JoinColumn(name = "chat_id")
     private User user;
@@ -27,15 +28,15 @@ public class AiTradingSettings {
     @Column(name = "tp_sl_config", length = 128)
     private String tpSlConfig;
 
-    @Builder.Default
     @Column(name = "reinvest_enabled", nullable = false)
+    @Builder.Default
     private Boolean reinvestEnabled = false;
 
-    @Column(name = "symbols", length = 256)
+    @Column(name = "symbols", length = 512)
     private String symbols;
 
-    @Builder.Default
     @Column(name = "top_n", nullable = false)
+    @Builder.Default
     private Integer topN = 5;
 
     @Column(name = "risk_threshold")
@@ -62,8 +63,8 @@ public class AiTradingSettings {
     @Column(name = "order_type", length = 16)
     private String orderType;
 
+    @Column(name = "notifications_enabled", nullable = false)
     @Builder.Default
-    @Column(name = "notifications_enabled")
     private Boolean notificationsEnabled = true;
 
     @Column(name = "model_version", length = 64)
@@ -72,8 +73,8 @@ public class AiTradingSettings {
     @Column(name = "leverage")
     private Integer leverage;
 
+    @Column(name = "cached_candles_limit", nullable = false)
     @Builder.Default
-    @Column(name = "cached_candles_limit")
     private Integer cachedCandlesLimit = 500;
 
     @Column(name = "ml_model_path")
@@ -100,14 +101,13 @@ public class AiTradingSettings {
     @Column(name = "ml_trained_at")
     private Long mlTrainedAt;
 
-    /** Новый ключевой флаг работы бота */
-    @Builder.Default
     @Column(name = "is_running", nullable = false)
+    @Builder.Default
     private Boolean isRunning = false;
 
-    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "strategy", length = 64, nullable = false)
+    @Builder.Default
     private StrategyType strategy = StrategyType.DEFAULT;
 
     @Version

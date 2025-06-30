@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -110,7 +111,13 @@ public class AiTradingSettingsService {
 
     public void updateSymbols(Long chatId, String symbolsCsv) {
         AiTradingSettings s = getOrCreate(chatId);
-        s.setSymbols(symbolsCsv);
+        // Очистка: убираем пробелы и пустые строки
+        String cleaned = Arrays.stream(symbolsCsv.split(","))
+                .map(String::trim)
+                .filter(sy -> !sy.isEmpty())
+                .distinct()
+                .collect(Collectors.joining(","));
+        s.setSymbols(cleaned);
         settingsRepo.save(s);
     }
 

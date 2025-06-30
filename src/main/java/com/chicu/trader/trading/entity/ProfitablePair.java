@@ -4,8 +4,10 @@ import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
-@Table(name = "profitable_pairs")
-@Data
+@Table(name = "profitable_pairs",
+        uniqueConstraints = @UniqueConstraint(columnNames = {"user_chat_id", "symbol"}))
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -21,13 +23,12 @@ public class ProfitablePair {
     @Column(name = "symbol", nullable = false)
     private String symbol;
 
-    @Column(name = "take_profit_pct")
+    @Column(name = "take_profit_pct", nullable = false)
     private Double takeProfitPct;
 
-    @Column(name = "stop_loss_pct")
+    @Column(name = "stop_loss_pct", nullable = false)
     private Double stopLossPct;
 
-    @Column(name = "active")
+    @Column(name = "active", nullable = false)
     private Boolean active;
-
 }

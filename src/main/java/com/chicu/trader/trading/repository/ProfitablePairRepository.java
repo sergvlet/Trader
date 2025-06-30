@@ -4,18 +4,21 @@ import com.chicu.trader.trading.entity.ProfitablePair;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
-import java.util.Optional;
 
 public interface ProfitablePairRepository extends JpaRepository<ProfitablePair, Long> {
 
+    /**
+     * Все пары пользователя
+     */
     List<ProfitablePair> findByUserChatId(Long chatId);
 
-    // ДОБАВЛЯЕМ ЭТОТ МЕТОД
+    /**
+     * Только активные пары пользователя
+     */
     List<ProfitablePair> findByUserChatIdAndActiveTrue(Long chatId);
 
+    /**
+     * Все пары по символу у пользователя
+     */
     List<ProfitablePair> findByUserChatIdAndSymbol(Long chatId, String symbol);
-
-    List<ProfitablePair> findAllByUserChatIdAndSymbol(Long chatId, String symbol);
-
-
 }

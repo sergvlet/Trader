@@ -8,10 +8,11 @@ import java.time.Instant;
 
 @Entity
 @Table(name = "trade_log")
-@Data
-@Builder
-@AllArgsConstructor
+@Getter
+@Setter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class TradeLog {
 
     @Id
@@ -33,32 +34,28 @@ public class TradeLog {
     @Column(name = "quantity", nullable = false, precision = 18, scale = 8)
     private BigDecimal quantity;
 
-    // --- выходные поля теперь nullable ---
-
-    @Column(name = "exit_time", nullable = true)
+    // --- выходные поля ---
+    @Column(name = "exit_time")
     private Instant exitTime;
 
-    @Column(name = "exit_price", nullable = true, precision = 18, scale = 8)
+    @Column(name = "exit_price", precision = 18, scale = 8)
     private BigDecimal exitPrice;
 
-    @Column(name = "pnl", nullable = true, precision = 18, scale = 8)
+    @Column(name = "pnl", precision = 18, scale = 8)
     private BigDecimal pnl;
 
-    /**
-     * Поле-флаг закрытости сделки.
-     */
     @Column(name = "is_closed", nullable = false)
     private Boolean closed = false;
 
-    @Column(name = "take_profit_price", precision = 18, scale = 8, nullable = true)
+    @Column(name = "take_profit_price", precision = 18, scale = 8)
     private BigDecimal takeProfitPrice;
 
-    @Column(name = "stop_loss_price", precision = 18, scale = 8, nullable = true)
+    @Column(name = "stop_loss_price", precision = 18, scale = 8)
     private BigDecimal stopLossPrice;
 
-    @Column(name = "entry_client_order_id", length = 64, unique = true, nullable = true)
+    @Column(name = "entry_client_order_id", length = 64, unique = true)
     private String entryClientOrderId;
 
-    @Column(name = "exit_client_order_id", length = 64, unique = true, nullable = true)
+    @Column(name = "exit_client_order_id", length = 64, unique = true)
     private String exitClientOrderId;
 }
