@@ -4,8 +4,10 @@ import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.strategy.StrategyType;
+import com.chicu.trader.trading.entity.ProfitablePair;
 import com.chicu.trader.trading.model.BacktestResult;
 import com.chicu.trader.trading.service.BacktestService;
+import com.chicu.trader.trading.service.ProfitablePairService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -22,8 +24,8 @@ public class AiTradingBacktestingState implements MenuState {
 
     private final AiTradingSettingsService settingsService;
     private final BacktestService backtestService;
+    private final ProfitablePairService pairService;
 
-    // Храним результат на время отрисовки
     private final Map<Long, String> lastResults = new ConcurrentHashMap<>();
 
     @Override
@@ -33,33 +35,40 @@ public class AiTradingBacktestingState implements MenuState {
 
     @Override
     public SendMessage render(Long chatId) {
-        AiTradingSettings s = settingsService.getOrCreate(chatId);
+        AiTradingSettings settings = settingsService.getOrCreate(chatId);
+        List<ProfitablePair> pairs = pairService.getActivePairs(chatId);
 
-        // Параметры
-        String strategy = Optional.ofNullable(s.getStrategy()).map(StrategyType::name).orElse("N/A");
-        String pairs = Optional.ofNullable(s.getSymbols()).orElse("—");
-        double tp = Optional.ofNullable(s.getRiskThreshold()).orElse(2.0);
-        double sl = Optional.ofNullable(s.getMaxDrawdown()).orElse(1.0);
-        double commission = Optional.ofNullable(s.getCommission()).orElse(0.1);
+        String strategy = Optional.ofNullable(settings.getStrategy()).map(StrategyType::name).orElse("N/A");
+        double commission = Optional.ofNullable(settings.getCommission()).orElse(0.1);
 
         StringBuilder sb = new StringBuilder("*⚙️ Параметры стратегии:*\n");
         sb.append("• Стратегия: `").append(strategy).append("`\n");
-        sb.append("• Пары: `").append(pairs).append("`\n");
-        sb.append(String.format("• Take-Profit: `%.2f%%`\n", tp));
-        sb.append(String.format("• Stop-Loss: `%.2f%%`\n", sl));
-        sb.append(String.format("• Комиссия: `%.2f%%`\n", commission));
-        sb.append("\nНажмите «Запустить бэктест», чтобы протестировать стратегию по историческим данным.\n");
+        sb.append("• Комиссия: `").append(String.format("%.2f%%", commission)).append("`\n");
 
-        if (lastResults.containsKey(chatId)) {
-            sb.append("\n").append(lastResults.remove(chatId)); // показать 1 раз
+        if (pairs.isEmpty()) {
+            sb.append("• Активные пары: _не выбраны_\n");
+        } else {
+            sb.append("• Пары и TP/SL:\n");
+            for (ProfitablePair pair : pairs) {
+                sb.append(String.format("  • `%s` → TP: %.2f%%, SL: %.2f%%\n",
+                        pair.getSymbol(),
+                        Optional.ofNullable(pair.getTakeProfitPct()).orElse(2.0),
+                        Optional.ofNullable(pair.getStopLossPct()).orElse(1.0)));
+            }
         }
 
-        List<List<InlineKeyboardButton>> buttons = new ArrayList<>();
-        buttons.add(List.of(InlineKeyboardButton.builder()
+        if (lastResults.containsKey(chatId)) {
+            sb.append("\n").append(lastResults.remove(chatId)); // Показываем один раз
+        } else {
+            sb.append("\nНажмите «Запустить бэктест», чтобы протестировать стратегию по историческим данным.");
+        }
+
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        keyboard.add(List.of(InlineKeyboardButton.builder()
                 .text("▶️ Запустить бэктест")
-                .callbackData("ai_trading_settings_backtesting:run")
+                .callbackData(name() + ":run")
                 .build()));
-        buttons.add(List.of(InlineKeyboardButton.builder()
+        keyboard.add(List.of(InlineKeyboardButton.builder()
                 .text("‹ Назад")
                 .callbackData("ai_trading_settings")
                 .build()));
@@ -68,40 +77,44 @@ public class AiTradingBacktestingState implements MenuState {
                 .chatId(chatId.toString())
                 .text(sb.toString())
                 .parseMode("Markdown")
-                .replyMarkup(InlineKeyboardMarkup.builder().keyboard(buttons).build())
+                .replyMarkup(InlineKeyboardMarkup.builder().keyboard(keyboard).build())
                 .build();
     }
 
     @Override
     public String handleInput(Update u) {
         if (!u.hasCallbackQuery()) return name();
+
         String data = u.getCallbackQuery().getData();
         Long chatId = u.getCallbackQuery().getMessage().getChatId();
 
-        if ("ai_trading_settings_backtesting:run".equals(data)) {
+        if (data.endsWith(":run")) {
             BacktestResult result = backtestService.runBacktest(chatId);
 
-            double pnl = result.getTotalPnl();
+            double pnl = result.getTotalPnl() * 100;
             double winRate = result.getWinRate() * 100;
-            int count = result.getTrades().size();
+            int count = result.getTotalTrades();
 
-            String msg = String.format("""
-                *📈 Результаты бэктеста:*
-                • Сделок: `%d`
-                • Win-rate: `%.2f%%`
-                • Общий PnL: `%.2f%%`
+            StringBuilder msg = new StringBuilder();
+            msg.append("*📈 Результаты бэктеста:*\n");
+            msg.append(String.format("• Сделок: `%d`\n", count));
+            msg.append(String.format("• Win-rate: `%.2f%%`\n", winRate));
+            msg.append(String.format("• Общий PnL: `%.2f%%`\n", pnl));
 
-                💡 Проверьте эффективность стратегии и измените TP/SL при необходимости.
-                """, count, winRate, pnl * 100);
+            List<String> losers = result.getLosingSymbols();
+            if (!losers.isEmpty()) {
+                msg.append("\n⚠️ Убыточные пары:\n");
+                for (String sym : losers) {
+                    msg.append("• `").append(sym).append("`\n");
+                }
+            }
 
-            lastResults.put(chatId, msg);
-            return name(); // перерисовать то же состояние с результатом
+            msg.append("\n💡 Проверьте эффективность стратегии и скорректируйте TP/SL при необходимости.");
+            lastResults.put(chatId, msg.toString());
+
+            return name(); // возвращаем то же состояние
         }
 
-        if ("ai_trading_settings".equals(data)) {
-            return "ai_trading_settings";
-        }
-
-        return name();
+        return "ai_trading_settings";
     }
 }

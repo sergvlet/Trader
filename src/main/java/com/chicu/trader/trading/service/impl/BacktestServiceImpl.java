@@ -2,52 +2,53 @@ package com.chicu.trader.trading.service.impl;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
+import com.chicu.trader.strategy.SignalType;
+import com.chicu.trader.strategy.StrategyRegistry;
+import com.chicu.trader.strategy.TradeStrategy;
+import com.chicu.trader.trading.entity.ProfitablePair;
 import com.chicu.trader.trading.model.BacktestResult;
 import com.chicu.trader.trading.model.Candle;
 import com.chicu.trader.trading.service.BacktestService;
 import com.chicu.trader.trading.service.CandleService;
-import com.chicu.trader.strategy.SignalType;
-import com.chicu.trader.strategy.TradeStrategy;
-import com.chicu.trader.strategy.StrategyRegistry;
+import com.chicu.trader.trading.service.ProfitablePairService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 public class BacktestServiceImpl implements BacktestService {
 
     private final AiTradingSettingsService settingsService;
+    private final ProfitablePairService pairService;
     private final CandleService candleService;
     private final StrategyRegistry strategyRegistry;
 
     @Override
     public BacktestResult runBacktest(Long chatId) {
         AiTradingSettings settings = settingsService.getSettingsOrThrow(chatId);
-        BacktestResult result = new BacktestResult();
         TradeStrategy strategy = strategyRegistry.getStrategy(settings.getStrategy());
-
-        double tpPct = Optional.ofNullable(settings.getRiskThreshold()).orElse(2.0);
-        double slPct = Optional.ofNullable(settings.getMaxDrawdown()).orElse(1.0);
-        double commission = Optional.ofNullable(settings.getCommission()).orElse(0.1);
-
         Duration interval = parseTimeframe(settings.getTimeframe());
         int limit = settings.getCachedCandlesLimit();
+        double commissionPct = settings.getCommission() != null ? settings.getCommission() : 0.1;
 
-        for (String raw : settings.getSymbols().split(",")) {
-            String symbol = raw.trim();
-            if (symbol.isEmpty()) continue;
+        List<ProfitablePair> activePairs = pairService.getActivePairs(chatId);
+        BacktestResult result = new BacktestResult();
+
+        for (ProfitablePair pair : activePairs) {
+            String symbol = pair.getSymbol();
+            double tpPct = pair.getTakeProfitPct() != null ? pair.getTakeProfitPct() : 2.0;
+            double slPct = pair.getStopLossPct() != null ? pair.getStopLossPct() : 1.0;
 
             List<Candle> candles = candleService.loadHistory(symbol, interval, limit);
-            if (candles.size() < 10) continue;
+            if (candles.size() < 20) continue;
 
             boolean open = false;
             Candle entry = null;
 
-            for (int i = 10; i < candles.size(); i++) {
+            for (int i = 20; i < candles.size(); i++) {
                 List<Candle> history = candles.subList(0, i + 1);
                 SignalType signal = strategy.evaluate(history, settings);
                 Candle current = candles.get(i);
@@ -59,19 +60,21 @@ public class BacktestServiceImpl implements BacktestService {
                     double entryPrice = entry.getClose();
                     double high = current.getHigh();
                     double low = current.getLow();
+                    double tpPrice = entryPrice * (1 + tpPct / 100.0);
+                    double slPrice = entryPrice * (1 - slPct / 100.0);
 
-                    double tp = entryPrice * (1 + tpPct / 100.0);
-                    double sl = entryPrice * (1 - slPct / 100.0);
+                    boolean tpHit = high >= tpPrice;
+                    boolean slHit = low <= slPrice;
 
-                    if (high >= tp || low <= sl) {
-                        double exitPrice = high >= tp ? tp : sl;
+                    if (tpHit || slHit) {
+                        double exitPrice = tpHit ? tpPrice : slPrice;
                         result.addTrade(new BacktestResult.Trade(
                                 symbol,
                                 entry.getCloseTime(),
                                 entryPrice,
                                 current.getCloseTime(),
                                 exitPrice,
-                                commission
+                                commissionPct
                         ));
                         open = false;
                         entry = null;
@@ -84,9 +87,11 @@ public class BacktestServiceImpl implements BacktestService {
     }
 
     private Duration parseTimeframe(String tf) {
+        if (tf == null || tf.isBlank()) return Duration.ofMinutes(1);
         tf = tf.trim().toLowerCase();
         long value = Long.parseLong(tf.substring(0, tf.length() - 1));
         char unit = tf.charAt(tf.length() - 1);
+
         return switch (unit) {
             case 'm' -> Duration.ofMinutes(value);
             case 'h' -> Duration.ofHours(value);
