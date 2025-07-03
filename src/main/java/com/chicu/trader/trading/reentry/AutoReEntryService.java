@@ -4,6 +4,8 @@ import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.strategy.SignalType;
 import com.chicu.trader.strategy.StrategyRegistry;
+import com.chicu.trader.strategy.StrategySettings;
+import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.trading.entity.TradeLog;
 import com.chicu.trader.trading.model.Candle;
 import com.chicu.trader.trading.repository.TradeLogRepository;
@@ -33,7 +35,7 @@ public class AutoReEntryService {
     private final OrderService orderService;
     private final AccountService accountService;
 
-    @Scheduled(fixedRate = 300_000)  // проверяем каждые 5 минут
+    @Scheduled(fixedRate = 300_000)  // каждые 5 минут
     public void checkAndReenter() {
         List<Long> allUsers = settingsService.findAllChatIds();
 
@@ -41,17 +43,21 @@ public class AutoReEntryService {
             try {
                 processUser(chatId);
             } catch (Exception e) {
-                log.error("Ошибка в AutoReEntry для chatId={}: {}", chatId, e.getMessage(), e);
+                log.error("❌ AutoReEntry ▶ ошибка для chatId={}: {}", chatId, e.getMessage(), e);
             }
         }
     }
 
     private void processUser(Long chatId) {
         AiTradingSettings settings = settingsService.getOrCreate(chatId);
-        if (!settings.getIsRunning()) {
-            log.info("AutoReEntry ▶ торговля выключена для chatId={}", chatId);
+        if (!Boolean.TRUE.equals(settings.getIsRunning())) {
+            log.info("⏸ AutoReEntry ▶ торговля отключена для chatId={}", chatId);
             return;
         }
+
+        var strategyType = settings.getStrategy();
+        TradeStrategy strategy = strategyRegistry.getStrategy(strategyType);
+        StrategySettings strategySettings = strategyRegistry.getSettings(strategyType, chatId);
 
         List<TradeLog> closedProfitable = tradeLogRepository.findRecentClosedProfitableTrades(chatId);
         for (TradeLog trade : closedProfitable) {
@@ -60,13 +66,12 @@ public class AutoReEntryService {
             Duration timeframe = parseDuration(settings.getTimeframe());
             List<Candle> candles = candleService.loadHistory(symbol, timeframe, settings.getCachedCandlesLimit());
             if (candles == null || candles.isEmpty()) {
-                log.warn("AutoReEntry ▶ нет свечей для {}", symbol);
+                log.warn("⚠️ AutoReEntry ▶ нет свечей для {}", symbol);
                 continue;
             }
 
-            var strategy = strategyRegistry.getStrategy(settings.getStrategy());
-            SignalType signal = strategy.evaluate(candles, settings);
-            log.info("AutoReEntry ▶ сигнал для {}: {}", symbol, signal);
+            SignalType signal = strategy.evaluate(candles, strategySettings);
+            log.info("📈 AutoReEntry ▶ сигнал {} для {} = {}", strategyType, symbol, signal);
 
             if (signal == SignalType.BUY) {
                 double lastPrice = candles.get(candles.size() - 1).getClose();
@@ -74,9 +79,9 @@ public class AutoReEntryService {
                 if (qty > 0) {
                     try {
                         orderService.placeMarketBuy(chatId, symbol, BigDecimal.valueOf(qty));
-                        log.info("AutoReEntry ▶ Перезаход BUY для {} qty={}", symbol, qty);
+                        log.info("🟢 AutoReEntry ▶ Перезаход BUY по {} qty={}", symbol, qty);
                     } catch (Exception e) {
-                        log.error("Ошибка AutoReEntry покупки: {}", e.getMessage());
+                        log.error("❌ AutoReEntry ▶ ошибка покупки: {}", e.getMessage(), e);
                     }
                 }
             }
@@ -93,7 +98,7 @@ public class AutoReEntryService {
             if (timeframe.endsWith("h")) return Duration.ofHours(Integer.parseInt(timeframe.replace("h", "")));
             if (timeframe.endsWith("d")) return Duration.ofDays(Integer.parseInt(timeframe.replace("d", "")));
         } catch (Exception e) {
-            log.warn("AutoReEntry ▶ неверный timeframe='{}', используем 1m", timeframe);
+            log.warn("⚠️ AutoReEntry ▶ неверный timeframe='{}', используем 1m", timeframe);
         }
         return Duration.ofMinutes(1);
     }

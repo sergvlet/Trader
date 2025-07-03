@@ -1,6 +1,6 @@
-// src/main/java/com/chicu/trader/bot/menu/core/MenuService.java
 package com.chicu.trader.bot.menu.core;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -8,13 +8,14 @@ import org.telegram.telegrambots.meta.api.objects.Update;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 @Service
 public class MenuService {
 
     public static final String BACK = "BACK";
-    public static final String MAIN_MENU = "MAIN_MENU";
+    public static final String MAIN_MENU = "main";  // должно существовать состояние с name() = "main"
     public static final String STATE_NETWORK_SETTINGS = "network_settings";
-    public static final String STATE_AI_TRADING_SETTINGS_TP_SL = "ai_trading_settings_tp_sl";
+
     private final List<MenuState> states;
     private final Map<Long, String> currentStateMap = new ConcurrentHashMap<>();
     private final Map<Long, String> notices = new ConcurrentHashMap<>();
@@ -39,27 +40,66 @@ public class MenuService {
     }
 
     public SendMessage renderState(String stateName, Long chatId) {
-        MenuState st = states.stream()
-                .filter(s -> s.name().equals(stateName))
+        String baseState = baseName(stateName);
+        return states.stream()
+                .filter(s -> s.name().equals(baseState))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("State not found: " + stateName));
-        return st.render(chatId);
+                .map(state -> state.render(chatId))
+                .orElseGet(() -> {
+                    log.warn("State not found in renderState: {}", stateName);
+                    return fallbackMessage(chatId);
+                });
     }
 
     public String handleInput(Update update) {
         Long chatId = extractChatId(update);
-        String curr = currentStateMap.getOrDefault(chatId, MAIN_MENU);
-        MenuState state = states.stream()
-                .filter(s -> s.name().equals(curr))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("Unknown state: " + curr));
 
-        String next = state.handleInput(update);
-        if (BACK.equals(next)) {
-            next = MAIN_MENU;
+        String callbackData = update.hasCallbackQuery() ? update.getCallbackQuery().getData() : null;
+        String requestedState = callbackData != null ? baseName(callbackData) : null;
+
+        String currentState = currentStateMap.getOrDefault(chatId, MAIN_MENU);
+        MenuState state = findState(currentState).orElse(null);
+
+        if (state == null) {
+            log.warn("Current state not found: {}, fallback to MAIN_MENU", currentState);
+            currentState = MAIN_MENU;
+            state = findState(currentState).orElse(null);
         }
+
+        String next = null;
+        try {
+            if (state != null) {
+                next = state.handleInput(update);
+            }
+        } catch (Exception e) {
+            log.error("Ошибка в handleInput для state={}, chatId={}", currentState, chatId, e);
+        }
+
+        if (next == null) next = MAIN_MENU;
+        if (BACK.equals(next)) next = MAIN_MENU;
+
         currentStateMap.put(chatId, next);
         return next;
+    }
+
+    private Optional<MenuState> findState(String name) {
+        return states.stream()
+                .filter(s -> s.name().equals(name))
+                .findFirst();
+    }
+
+    private String baseName(String callbackData) {
+        if (callbackData == null) return "";
+        return callbackData.contains(":")
+                ? callbackData.substring(0, callbackData.indexOf(":"))
+                : callbackData;
+    }
+
+    private SendMessage fallbackMessage(Long chatId) {
+        return SendMessage.builder()
+                .chatId(chatId.toString())
+                .text("⚠ Неизвестное состояние. Возвращаюсь в главное меню.")
+                .build();
     }
 
     private Long extractChatId(Update update) {

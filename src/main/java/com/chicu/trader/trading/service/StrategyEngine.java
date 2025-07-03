@@ -3,8 +3,9 @@ package com.chicu.trader.trading.service;
 import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.strategy.SignalType;
 import com.chicu.trader.strategy.StrategyRegistry;
-import com.chicu.trader.strategy.TradeStrategy;
+import com.chicu.trader.strategy.StrategySettings;
 import com.chicu.trader.strategy.StrategyType;
+import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.trading.model.Candle;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,14 +30,12 @@ public class StrategyEngine {
      */
     public SignalType evaluate(Long chatId, List<Candle> candles, AiTradingSettings settings) {
         StrategyType strategyType = settings.getStrategy();
-
         log.info("Запускаем стратегию {} для chatId={}", strategyType, chatId);
 
         TradeStrategy strat = registry.getStrategy(strategyType);
+        StrategySettings strategySettings = strat.getSettings(chatId);
 
-        // Метод evaluate() теперь должен возвращать SignalType напрямую
-        SignalType signal = strat.evaluate(candles, settings);
-
+        SignalType signal = strat.evaluate(candles, strategySettings);
         return signal != null ? signal : SignalType.HOLD;
     }
 }

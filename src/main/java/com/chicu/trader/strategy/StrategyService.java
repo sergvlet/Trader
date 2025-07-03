@@ -1,6 +1,5 @@
 package com.chicu.trader.strategy;
 
-import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.trading.model.Candle;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -15,20 +14,18 @@ public class StrategyService {
 
     public SignalType calculateGlobalSignal(
             StrategyType type,
-            List<Candle> candles,
-            AiTradingSettings settings
+            Long chatId,
+            List<Candle> candles
     ) {
         TradeStrategy strategy = registry.getStrategy(type);
+        StrategySettings settings = strategy.getSettings(chatId);
 
         SignalType localSignal = strategy.evaluate(candles, settings);
 
-        switch (localSignal) {
-            case BUY:
-                return SignalType.BUY;
-            case SELL:
-                return SignalType.SELL;
-            default:
-                return SignalType.HOLD;
-        }
+        return switch (localSignal) {
+            case BUY -> SignalType.BUY;
+            case SELL -> SignalType.SELL;
+            default -> SignalType.HOLD;
+        };
     }
 }

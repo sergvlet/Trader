@@ -1,7 +1,7 @@
 package com.chicu.trader.strategy.ml;
 
-import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.strategy.SignalType;
+import com.chicu.trader.strategy.StrategySettings;
 import com.chicu.trader.strategy.StrategyType;
 import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.trading.model.Candle;
@@ -12,12 +12,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
 
-/**
- * ML-стратегия, которая использует обученную модель и вызывает Python-сервис
- * для оценки текущей ситуации.
- */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -27,8 +22,8 @@ public class MlModelStrategy implements TradeStrategy {
     private final PythonInferenceService inferenceService;
 
     @Override
-    public SignalType evaluate(List<Candle> candles, AiTradingSettings settings) {
-        Long chatId = settings.getChatId();
+    public SignalType evaluate(List<Candle> candles, StrategySettings settings) {
+        Long chatId = settings.getChatId();  // Получаем chatId из базового класса
         MlModelStrategySettings cfg = settingsService.getOrCreate(chatId);
 
         log.debug("ML_MODEL: chatId={}, model={}, features={}, threshold={}",
@@ -52,10 +47,22 @@ public class MlModelStrategy implements TradeStrategy {
         return StrategyType.ML_MODEL;
     }
 
-    /**
-     * Парсит список признаков и извлекает из свечей нужные значения.
-     * Пример featureList: "close,volume"
-     */
+    @Override
+    public StrategySettings getSettings(Long chatId) {
+        return settingsService.getOrCreate(chatId);
+    }
+
+    @Override
+    public boolean isTrainable() {
+        return true;
+    }
+
+    @Override
+    public void train(Long chatId) {
+        // TODO: добавить обучение модели, если применимо
+        log.info("ML_MODEL: обучение не реализовано (chatId={})", chatId);
+    }
+
     private double[] extractFeatures(List<Candle> candles, String featureList) {
         if (candles == null || candles.isEmpty()) return new double[0];
 

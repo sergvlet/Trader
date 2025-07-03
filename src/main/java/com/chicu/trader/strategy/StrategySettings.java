@@ -2,8 +2,11 @@ package com.chicu.trader.strategy;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.experimental.SuperBuilder;
 
 /**
  * Абстрактный базовый класс для хранения настроек конкретных стратегий.
@@ -14,6 +17,9 @@ import lombok.Setter;
 @Getter
 @Setter
 @MappedSuperclass
+@NoArgsConstructor
+@AllArgsConstructor
+@SuperBuilder
 public abstract class StrategySettings {
 
     @Id
@@ -28,8 +34,17 @@ public abstract class StrategySettings {
     protected AiTradingSettings aiTradingSettings;
 
     /**
-     * Метод, возвращающий тип текущей стратегии.
-     * Каждая реализация должна явно указать свой StrategyType.
+     * Тип текущей стратегии (обязателен для всех реализаций).
      */
     public abstract StrategyType getType();
+
+    /**
+     * Таймфрейм, например: "1m", "1h", "4h"
+     */
+    public abstract String getTimeframe();
+
+    /**
+     * Количество свечей для загрузки (истории) при анализе
+     */
+    public abstract Integer getCachedCandlesLimit();
 }

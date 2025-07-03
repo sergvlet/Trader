@@ -4,6 +4,7 @@ import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.strategy.SignalType;
 import com.chicu.trader.strategy.StrategyRegistry;
+import com.chicu.trader.strategy.StrategySettings;
 import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.trading.entity.ProfitablePair;
 import com.chicu.trader.trading.model.BacktestResult;
@@ -29,9 +30,11 @@ public class BacktestServiceImpl implements BacktestService {
     @Override
     public BacktestResult runBacktest(Long chatId) {
         AiTradingSettings settings = settingsService.getSettingsOrThrow(chatId);
+        StrategySettings strategySettings = strategyRegistry.getSettings(settings.getStrategy(), chatId);
         TradeStrategy strategy = strategyRegistry.getStrategy(settings.getStrategy());
-        Duration interval = parseTimeframe(settings.getTimeframe());
-        int limit = settings.getCachedCandlesLimit();
+
+        Duration interval = parseTimeframe(strategySettings.getTimeframe());
+        int limit = strategySettings.getCachedCandlesLimit();
         double commissionPct = settings.getCommission() != null ? settings.getCommission() : 0.1;
 
         List<ProfitablePair> activePairs = pairService.getActivePairs(chatId);
@@ -50,7 +53,7 @@ public class BacktestServiceImpl implements BacktestService {
 
             for (int i = 20; i < candles.size(); i++) {
                 List<Candle> history = candles.subList(0, i + 1);
-                SignalType signal = strategy.evaluate(history, settings);
+                SignalType signal = strategy.evaluate(history, strategySettings);
                 Candle current = candles.get(i);
 
                 if (signal == SignalType.BUY && !open) {

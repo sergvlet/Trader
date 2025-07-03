@@ -3,6 +3,8 @@ package com.chicu.trader.bot.menu.feature.ai_trading;
 import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
+import com.chicu.trader.strategy.StrategyRegistry;
+import com.chicu.trader.strategy.StrategySettings;
 import com.chicu.trader.strategy.StrategyType;
 import com.chicu.trader.trading.entity.ProfitablePair;
 import com.chicu.trader.trading.model.BacktestResult;
@@ -23,8 +25,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AiTradingBacktestingState implements MenuState {
 
     private final AiTradingSettingsService settingsService;
-    private final BacktestService backtestService;
     private final ProfitablePairService pairService;
+    private final BacktestService backtestService;
+    private final StrategyRegistry strategyRegistry;
 
     private final Map<Long, String> lastResults = new ConcurrentHashMap<>();
 
@@ -50,15 +53,14 @@ public class AiTradingBacktestingState implements MenuState {
         } else {
             sb.append("• Пары и TP/SL:\n");
             for (ProfitablePair pair : pairs) {
-                sb.append(String.format("  • `%s` → TP: %.2f%%, SL: %.2f%%\n",
-                        pair.getSymbol(),
-                        Optional.ofNullable(pair.getTakeProfitPct()).orElse(2.0),
-                        Optional.ofNullable(pair.getStopLossPct()).orElse(1.0)));
+                double tp = Optional.ofNullable(pair.getTakeProfitPct()).orElse(2.0);
+                double sl = Optional.ofNullable(pair.getStopLossPct()).orElse(1.0);
+                sb.append(String.format("  • `%s` → TP: %.2f%%, SL: %.2f%%\n", pair.getSymbol(), tp, sl));
             }
         }
 
         if (lastResults.containsKey(chatId)) {
-            sb.append("\n").append(lastResults.remove(chatId)); // Показываем один раз
+            sb.append("\n").append(lastResults.remove(chatId));
         } else {
             sb.append("\nНажмите «Запустить бэктест», чтобы протестировать стратегию по историческим данным.");
         }
@@ -111,10 +113,8 @@ public class AiTradingBacktestingState implements MenuState {
 
             msg.append("\n💡 Проверьте эффективность стратегии и скорректируйте TP/SL при необходимости.");
             lastResults.put(chatId, msg.toString());
-
-            return name(); // возвращаем то же состояние
         }
 
-        return "ai_trading_settings";
+        return name();
     }
 }

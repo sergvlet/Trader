@@ -4,6 +4,7 @@ import com.chicu.trader.strategy.StrategySettings;
 import com.chicu.trader.strategy.StrategyType;
 import jakarta.persistence.*;
 import lombok.*;
+
 import java.time.Instant;
 
 @Entity
@@ -31,7 +32,7 @@ public class MlModelStrategySettings extends StrategySettings {
     @Column(name = "last_trained_at")
     private Instant lastTrainedAt;
 
-    // — опционально: гиперпараметры
+    // — гиперпараметры (опционально)
     @Column(name = "n_estimators")
     private Integer nEstimators;
 
@@ -41,11 +42,29 @@ public class MlModelStrategySettings extends StrategySettings {
     @Column(name = "learning_rate")
     private Double learningRate;
 
+    /** Таймфрейм (например: "1h") */
+    @Column(name = "timeframe", nullable = false)
+    private String timeframe;
+
+    /** Кол-во свечей для анализа */
+    @Column(name = "cached_candles_limit", nullable = false)
+    private Integer cachedCandlesLimit;
+
     @Version
     private Long version;
 
     @Override
     public StrategyType getType() {
         return StrategyType.ML_MODEL;
+    }
+
+    @Override
+    public String getTimeframe() {
+        return this.timeframe;
+    }
+
+    @Override
+    public Integer getCachedCandlesLimit() {
+        return this.cachedCandlesLimit;
     }
 }

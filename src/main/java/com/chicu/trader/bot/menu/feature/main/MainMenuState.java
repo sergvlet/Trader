@@ -16,55 +16,64 @@ public class MainMenuState implements MenuState {
 
     public MainMenuState() {
         this.keyboard = InlineKeyboardMarkup.builder()
-            .keyboard(List.of(
-                List.of(
-                    InlineKeyboardButton.builder()
-                        .text("🤖 AI-торговля")
-                        .callbackData("ai_trading")
-                        .build(),
-                    InlineKeyboardButton.builder()
-                        .text("✋ Ручная торговля")
-                        .callbackData("manual_trading")
-                        .build()
-                ),
-                List.of(
-                    InlineKeyboardButton.builder()
-                        .text("ℹ️ О боте")
-                        .callbackData("about")
-                        .build(),
-                    InlineKeyboardButton.builder()
-                        .text("📝 Регистрация")
-                        .callbackData("register")
-                        .build()
-                ),
-                List.of(
-                    InlineKeyboardButton.builder()
-                        .text("💳 Тарифы")
-                        .callbackData("plans")
-                        .build()
-                )
-            ))
-            .build();
+                .keyboard(List.of(
+                        List.of(
+                                InlineKeyboardButton.builder()
+                                        .text("🤖 AI-торговля")
+                                        .callbackData("ai_trading_settings")
+                                        .build(),
+                                InlineKeyboardButton.builder()
+                                        .text("✋ Ручная торговля")
+                                        .callbackData("manual_trading_settings")
+                                        .build()
+                        ),
+                        List.of(
+                                InlineKeyboardButton.builder()
+                                        .text("ℹ️ О боте")
+                                        .callbackData("about")
+                                        .build(),
+                                InlineKeyboardButton.builder()
+                                        .text("📝 Регистрация")
+                                        .callbackData("register")
+                                        .build()
+                        ),
+                        List.of(
+                                InlineKeyboardButton.builder()
+                                        .text("💳 Тарифы")
+                                        .callbackData("plans")
+                                        .build()
+                        )
+                ))
+                .build();
     }
 
     @Override
     public String name() {
-        return "MAIN_MENU";
+        return "main"; // Должен совпадать с fallback в MenuService
     }
 
     @Override
     public SendMessage render(Long chatId) {
         return SendMessage.builder()
-            .chatId(chatId.toString())
-            .text("🔹 Главное меню — выберите раздел:")
-            .replyMarkup(keyboard)
-            .build();
+                .chatId(chatId.toString())
+                .text("*🏠 Главное меню*\nВыберите один из разделов ниже:")
+                .parseMode("Markdown")
+                .replyMarkup(keyboard)
+                .build();
     }
 
     @Override
     public String handleInput(Update update) {
         if (update.hasCallbackQuery()) {
-            return update.getCallbackQuery().getData();  // "ai_trading", "about" и т.д.
+            String data = update.getCallbackQuery().getData();
+            return switch (data) {
+                case "ai_trading_settings" -> "ai_trading_settings";
+                case "manual_trading_settings" -> "manual_trading_settings";
+                case "about" -> "about";
+                case "register" -> "register";
+                case "plans" -> "plans";
+                default -> name(); // fallback на главное меню
+            };
         }
         return name();
     }

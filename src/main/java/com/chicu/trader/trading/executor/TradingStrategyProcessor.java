@@ -4,6 +4,8 @@ import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.strategy.SignalType;
 import com.chicu.trader.strategy.StrategyRegistry;
+import com.chicu.trader.strategy.StrategySettings;
+import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.trading.entity.ProfitablePair;
 import com.chicu.trader.trading.entity.TradeLog;
 import com.chicu.trader.trading.model.Candle;
@@ -36,7 +38,9 @@ public class TradingStrategyProcessor {
 
     public void processSymbol(Long chatId, ProfitablePair pair) {
         AiTradingSettings settings = settingsService.getSettingsOrThrow(chatId);
-        var strategy = strategyRegistry.getStrategy(settings.getStrategy());
+        var strategyType = settings.getStrategy();
+        var strategy = strategyRegistry.getStrategy(strategyType);
+        var strategySettings = strategyRegistry.getSettings(strategyType, chatId);
         Duration interval = parseDuration(settings.getTimeframe());
 
         List<Candle> candles = candleService.loadHistory(
@@ -48,7 +52,7 @@ public class TradingStrategyProcessor {
         }
 
         double lastPrice = candles.get(candles.size() - 1).getClose();
-        SignalType signal = strategy.evaluate(candles, settings);
+        SignalType signal = strategy.evaluate(candles, strategySettings);
         log.info("📊 Сигнал {} для symbol={} → {}", chatId, pair.getSymbol(), signal);
 
         if (signal == SignalType.BUY) {

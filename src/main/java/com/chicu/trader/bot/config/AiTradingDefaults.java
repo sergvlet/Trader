@@ -1,8 +1,9 @@
-// src/main/java/com/chicu/trader/bot/config/AiTradingDefaults.java
 package com.chicu.trader.bot.config;
 
 import lombok.Getter;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 @Component
 @Getter
@@ -65,20 +66,21 @@ public class AiTradingDefaults {
     /** Стратегия по умолчанию */
     private final String defaultStrategy = "RSI_EMA";
 
-    // === Добавленные параметры по умолчанию для RSI/EMA ===
+    // === RSI/EMA параметры по умолчанию ===
 
-    /** Период RSI по умолчанию */
     private final int defaultRsiPeriod = 14;
-
-    /** Порог покупки по RSI по умолчанию */
     private final double defaultRsiBuyThreshold = 30.0;
-
-    /** Порог продажи по RSI по умолчанию */
     private final double defaultRsiSellThreshold = 70.0;
-
-    /** Период короткой EMA по умолчанию */
     private final int defaultEmaShort = 9;
-
-    /** Период длинной EMA по умолчанию */
     private final int defaultEmaLong = 21;
+
+    /** Параметры для переобучения RSI/EMA */
+    private final List<Integer> defaultRsiPeriods = List.of(10, 14, 20, 26);
+    private final List<Integer> defaultEmaShorts = List.of(5, 9, 12);
+    private final List<Integer> defaultEmaLongs = List.of(20, 21, 26, 30);
+    private final List<Double> defaultRsiBuyThresholds = List.of(25.0, 30.0, 35.0);
+    private final List<Double> defaultRsiSellThresholds = List.of(65.0, 70.0, 75.0);
+    private final double defaultTakeProfitPct = 2.0;
+    private final double defaultStopLossPct = 1.0;
+    private final int defaultTakeProfitWindow = 12;
 }
