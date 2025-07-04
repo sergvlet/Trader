@@ -1,4 +1,5 @@
-package com.chicu.trader.trading.model;
+// src/main/java/com/chicu/trader/trading/backtest/BacktestResult.java
+package com.chicu.trader.trading.backtest;
 
 import lombok.Getter;
 
@@ -26,7 +27,8 @@ public class BacktestResult {
             this.exitPrice = exitPrice;
 
             double grossPnl = (exitPrice - entryPrice) / entryPrice;
-            this.pnl = grossPnl - (commissionPct * 2.0 / 100.0); // комиссия на вход и выход
+            // комиссия дважды: вход + выход
+            this.pnl = grossPnl - (commissionPct * 2.0 / 100.0);
             this.win = this.pnl > 0;
         }
     }
@@ -68,15 +70,7 @@ public class BacktestResult {
     public List<String> getLosingSymbols() {
         Map<String, Double> pnlMap = getPnlBySymbol();
         List<String> losers = new ArrayList<>();
-        for (Map.Entry<String, Double> e : pnlMap.entrySet()) {
-            if (e.getValue() < 0) losers.add(e.getKey());
-        }
+        pnlMap.forEach((sym, pnl) -> { if (pnl < 0) losers.add(sym); });
         return losers;
-    }
-
-    public List<Trade> getSortedTradesByPnl() {
-        return trades.stream()
-                .sorted(Comparator.comparingDouble(Trade::getPnl).reversed())
-                .toList();
     }
 }
