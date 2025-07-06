@@ -13,12 +13,18 @@ import java.time.LocalDate;
 @RequiredArgsConstructor
 public class BacktestSettingsServiceImpl implements BacktestSettingsService {
 
+    private static final double DEFAULT_COMMISSION_PCT   = 0.1;
+    private static final double DEFAULT_SLIPPAGE_PCT     = 0.1;
+    private static final String DEFAULT_TIMEFRAME        = "15m";
+    private static final int    DEFAULT_CACHED_CANDLES   = 500;
+    private static final int    DEFAULT_LEVERAGE         = 1;
+
     private final BacktestSettingsRepository repo;
 
     /**
      * Получает или создает настройки бэктеста по chatId.
      * По умолчанию задает последние 30 дней, комиссию 0.1%,
-     * таймфрейм "15m", 500 свечей, плечо 1.
+     * проскальзывание 0.1%, таймфрейм "15m", 500 свечей, плечо 1.
      */
     @Override
     @Transactional
@@ -28,21 +34,25 @@ public class BacktestSettingsServiceImpl implements BacktestSettingsService {
                     .chatId(chatId)
                     .startDate(LocalDate.now().minusDays(30))
                     .endDate(LocalDate.now())
-                    .commissionPct(0.1)
-                    .timeframe("15m")
-                    .cachedCandlesLimit(500)
-                    .leverage(1)
+                    .commissionPct(DEFAULT_COMMISSION_PCT)
+                    .slippagePct(DEFAULT_SLIPPAGE_PCT)
+                    .timeframe(DEFAULT_TIMEFRAME)
+                    .cachedCandlesLimit(DEFAULT_CACHED_CANDLES)
+                    .leverage(DEFAULT_LEVERAGE)
                     .build();
             return repo.save(def);
         });
     }
 
     /**
-     * Сохраняет настройки бэктеста.
+     * Сохраняет настройки бэктеста, подставляя дефолтное slippagePct, если оно не указано.
      */
     @Override
     @Transactional
     public void save(BacktestSettings settings) {
+        if (settings.getSlippagePct() == null) {
+            settings.setSlippagePct(DEFAULT_SLIPPAGE_PCT);
+        }
         repo.save(settings);
     }
 
@@ -72,6 +82,20 @@ public class BacktestSettingsServiceImpl implements BacktestSettingsService {
         }
         BacktestSettings cfg = getOrCreate(chatId);
         cfg.setCommissionPct(commissionPct);
+        repo.save(cfg);
+    }
+
+    /**
+     * Обновляет проскальзывание.
+     */
+    @Override
+    @Transactional
+    public void updateSlippage(Long chatId, Double slippagePct) {
+        if (slippagePct < 0 || slippagePct > 100) {
+            throw new IllegalArgumentException("Проскальзывание должно быть от 0 до 100%");
+        }
+        BacktestSettings cfg = getOrCreate(chatId);
+        cfg.setSlippagePct(slippagePct);
         repo.save(cfg);
     }
 

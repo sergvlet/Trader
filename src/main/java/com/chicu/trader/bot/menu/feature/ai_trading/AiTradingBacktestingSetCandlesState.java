@@ -27,14 +27,27 @@ public class AiTradingBacktestingSetCandlesState implements MenuState {
     public SendMessage render(Long chatId) {
         int count = btService.getOrCreate(chatId).getCachedCandlesLimit();
 
-        String text = "*Количество свечей для кэша:*\nТекущее значение: `" + count + "`";
+        String text = "*Количество свечей для кэша:*\n" +
+                "Текущее значение: `" + count + "`";
 
-        var kb = InlineKeyboardMarkup.builder().keyboard(List.of(
+        InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder().keyboard(List.of(
                 List.of(
-                        InlineKeyboardButton.builder().text("−").callbackData(name() + ":dec").build(),
-                        InlineKeyboardButton.builder().text("+").callbackData(name() + ":inc").build()
+                        InlineKeyboardButton.builder()
+                                .text("−")
+                                .callbackData(name() + ":dec")
+                                .build(),
+                        InlineKeyboardButton.builder()
+                                .text("+")
+                                .callbackData(name() + ":inc")
+                                .build()
                 ),
-                List.of(InlineKeyboardButton.builder().text("‹ Назад").callbackData("ai_trading_backtesting_config").build())
+                List.of(
+                        InlineKeyboardButton.builder()
+                                .text("‹ Назад")
+                                // возвращаем callback в главное меню бэктеста
+                                .callbackData("ai_trading_backtesting_config")
+                                .build()
+                )
         )).build();
 
         return SendMessage.builder()
@@ -47,14 +60,23 @@ public class AiTradingBacktestingSetCandlesState implements MenuState {
 
     @Override
     public String handleInput(Update update) {
-        String data = update.getCallbackQuery().getData();
-        Long chatId = update.getCallbackQuery().getMessage().getChatId();
+        String data   = update.getCallbackQuery().getData();
+        Long   chatId = update.getCallbackQuery().getMessage().getChatId();
 
+        // Если нажали «Назад» — возвращаемся в меню конфигурации бэктеста
+        if ("ai_trading_backtesting_config".equals(data)) {
+            return "ai_trading_backtesting_config";
+        }
+
+        // Иначе — изменяем число свечей и остаёмся в этом же состоянии
         BacktestSettings s = btService.getOrCreate(chatId);
         int val = s.getCachedCandlesLimit();
 
-        if (data.endsWith(":inc")) val += 50;
-        else if (data.endsWith(":dec")) val = Math.max(50, val - 50);
+        if (data.endsWith(":inc")) {
+            val += 50;
+        } else if (data.endsWith(":dec")) {
+            val = Math.max(50, val - 50);
+        }
 
         btService.updateCachedCandlesLimit(chatId, val);
         return name();

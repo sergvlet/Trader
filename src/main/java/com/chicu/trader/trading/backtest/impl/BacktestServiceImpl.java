@@ -23,9 +23,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -35,10 +33,10 @@ public class BacktestServiceImpl implements BacktestService {
     private static final Logger log = LoggerFactory.getLogger(BacktestServiceImpl.class);
 
     private final AiTradingSettingsService settingsService;
-    private final ProfitablePairService      pairService;
-    private final CandleService             candleService;
-    private final StrategyRegistry          strategyRegistry;
-    private final BacktestSettingsService   backtestSettingsService;
+    private final ProfitablePairService    pairService;
+    private final CandleService            candleService;
+    private final StrategyRegistry         strategyRegistry;
+    private final BacktestSettingsService  backtestSettingsService;
 
     @Override
     public BacktestResult runBacktest(Long chatId) {
@@ -48,12 +46,17 @@ public class BacktestServiceImpl implements BacktestService {
         AiTradingSettings aiSettings = settingsService.getSettingsOrThrow(chatId);
         BacktestSettings  btSettings = backtestSettingsService.getOrCreate(chatId);
 
+        double commissionPct = btSettings.getCommissionPct();
+        double slippagePct   = btSettings.getSlippagePct();       // новый параметр
+        double costPct       = commissionPct + slippagePct;       // объединённые издержки
+
         log.info("Using strategy='{}', symbols='{}'",
                 aiSettings.getStrategy(), aiSettings.getSymbols());
-        log.info("Backtest settings: timeframe='{}', limit={}, commissionPct={}, dateRange={}→{}",
+        log.info("Backtest settings: timeframe='{}', limit={}, commissionPct={}%, slippagePct={}%, dateRange={}→{}",
                 btSettings.getTimeframe(),
                 btSettings.getCachedCandlesLimit(),
-                btSettings.getCommissionPct(),
+                commissionPct,
+                slippagePct,
                 btSettings.getStartDate(),
                 btSettings.getEndDate());
 
@@ -64,13 +67,12 @@ public class BacktestServiceImpl implements BacktestService {
                 strategyRegistry.getStrategy(aiSettings.getStrategy());
 
         // 3) Параметры бэктеста
-        Duration  interval      = parseTimeframe(btSettings.getTimeframe());
-        int       limit         = btSettings.getCachedCandlesLimit();
-        double    commissionPct = btSettings.getCommissionPct();
-        LocalDate startDate     = btSettings.getStartDate();
-        LocalDate endDate       = btSettings.getEndDate();
+        Duration  interval  = parseTimeframe(btSettings.getTimeframe());
+        int       limit     = btSettings.getCachedCandlesLimit();
+        LocalDate startDate = btSettings.getStartDate();
+        LocalDate endDate   = btSettings.getEndDate();
 
-        // 4) Формируем список символов
+        // 4) Список символов
         List<String> symbolsToTest;
         if (aiSettings.getSymbols() != null && !aiSettings.getSymbols().isBlank()) {
             symbolsToTest = Arrays.stream(aiSettings.getSymbols().split(","))
@@ -91,26 +93,26 @@ public class BacktestServiceImpl implements BacktestService {
 
         BacktestResult result = new BacktestResult();
 
-        // 5) Пробегаем по каждому символу
+        // 5) Цикл по символам
         for (String symbol : symbolsToTest) {
             log.info(">> Testing symbol='{}'", symbol);
 
             List<Candle> rawCandles = candleService.loadHistory(symbol, interval, limit);
-            log.info("Loaded {} raw candles for symbol='{}'", rawCandles.size(), symbol);
+            log.info("Loaded {} raw candles for '{}'", rawCandles.size(), symbol);
 
             List<Candle> candles = filterByDateRange(rawCandles, startDate, endDate);
-            log.info("{} candles remain after date filter [{}→{}] for '{}'",
+            log.info("{} candles after filter [{}→{}] for '{}'",
                     candles.size(), startDate, endDate, symbol);
 
             if (candles.size() < 2) {
-                log.warn("Not enough data ({} candles) for '{}', skipping", candles.size(), symbol);
+                log.warn("Skipping '{}': only {} candles", symbol, candles.size());
                 continue;
             }
 
             boolean open  = false;
             Candle  entry = null;
 
-            // TP/SL: из ProfitablePair, если она активна:
+            // TP/SL из активной ProfitablePair
             Optional<ProfitablePair> pairOpt = pairService
                     .getPairsBySymbol(chatId, symbol).stream()
                     .filter(ProfitablePair::getActive)
@@ -118,7 +120,7 @@ public class BacktestServiceImpl implements BacktestService {
             double tpPct = pairOpt.map(ProfitablePair::getTakeProfitPct).orElse(2.0);
             double slPct = pairOpt.map(ProfitablePair::getStopLossPct).orElse(1.0);
 
-            // 6) Цикл бэктеста
+            // 6) Цикл бэктеста по свечам
             for (int i = 1; i < candles.size(); i++) {
                 List<Candle> history = candles.subList(0, i + 1);
                 SignalType   signal  = strategy.evaluate(history, strategySettings);
@@ -130,7 +132,7 @@ public class BacktestServiceImpl implements BacktestService {
                 if (signal == SignalType.BUY && !open) {
                     open  = true;
                     entry = current;
-                    log.info("Opened BUY on '{}' at price {} (time={})",
+                    log.info("Opened BUY '{}' at {} (time={})",
                             symbol, entry.getClose(), Instant.ofEpochMilli(entry.getCloseTime()));
                 } else if (open && entry != null) {
                     double entryPrice = entry.getClose();
@@ -149,11 +151,15 @@ public class BacktestServiceImpl implements BacktestService {
                                 entryPrice,
                                 current.getCloseTime(),
                                 exitPrice,
-                                commissionPct
+                                costPct                   // передаем объединенные издержки
                         ));
-                        log.info("Closed '{}' at price {} (time={}) — TP hit={}, SL hit={}",
-                                symbol, exitPrice, Instant.ofEpochMilli(current.getCloseTime()),
-                                tpHit, slHit);
+                        log.info("Closed '{}' at {} (time={}), TP={}, SL={}",
+                                symbol,
+                                exitPrice,
+                                Instant.ofEpochMilli(current.getCloseTime()),
+                                tpHit,
+                                slHit
+                        );
                         open  = false;
                         entry = null;
                     }
@@ -166,7 +172,7 @@ public class BacktestServiceImpl implements BacktestService {
         return result;
     }
 
-    // === Вспомогательные методы ===
+    // Вспомогательные
 
     private Duration parseTimeframe(String tf) {
         if (tf == null || tf.isBlank()) return Duration.ofMinutes(1);
@@ -176,7 +182,7 @@ public class BacktestServiceImpl implements BacktestService {
             case 'm' -> Duration.ofMinutes(v);
             case 'h' -> Duration.ofHours(v);
             case 'd' -> Duration.ofDays(v);
-            default -> throw new IllegalArgumentException("Неподдерживаемый таймфрейм: " + tf);
+            default -> throw new IllegalArgumentException("Unsupported timeframe: " + tf);
         };
     }
 
@@ -187,7 +193,10 @@ public class BacktestServiceImpl implements BacktestService {
     ) {
         ZoneId zone          = ZoneId.systemDefault();
         Instant startInstant = startDate.atStartOfDay(zone).toInstant();
-        Instant endInstant   = endDate.plusDays(1).atStartOfDay(zone).toInstant().minusNanos(1);
+        Instant endInstant   = endDate.plusDays(1)
+                .atStartOfDay(zone)
+                .toInstant()
+                .minusNanos(1);
 
         return rawCandles.stream()
                 .filter(c -> {

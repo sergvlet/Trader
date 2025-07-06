@@ -30,6 +30,10 @@ public class BacktestSettings {
     @Column(name = "commission_pct", nullable = false)
     private Double commissionPct;
 
+    /** Проскальзывание (slippage) в процентах (например, 0.1) */
+    @Column(name = "slippage_pct", nullable = false)
+    private Double slippagePct;
+
     /** Таймфрейм, например: "1m", "15m", "1h" */
     @Column(name = "timeframe", nullable = false)
     private String timeframe;

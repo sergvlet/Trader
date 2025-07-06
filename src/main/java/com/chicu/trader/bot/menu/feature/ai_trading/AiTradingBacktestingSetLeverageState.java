@@ -27,14 +27,27 @@ public class AiTradingBacktestingSetLeverageState implements MenuState {
     public SendMessage render(Long chatId) {
         int lev = btService.getOrCreate(chatId).getLeverage();
 
-        String text = "*Плечо:*\nТекущее значение: `" + lev + "x`";
+        String text = "*Плечо:*\n" +
+                "Текущее значение: `" + lev + "x`";
 
-        var kb = InlineKeyboardMarkup.builder().keyboard(List.of(
+        InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder().keyboard(List.of(
                 List.of(
-                        InlineKeyboardButton.builder().text("−").callbackData(name() + ":dec").build(),
-                        InlineKeyboardButton.builder().text("+").callbackData(name() + ":inc").build()
+                        InlineKeyboardButton.builder()
+                                .text("−")
+                                .callbackData(name() + ":dec")
+                                .build(),
+                        InlineKeyboardButton.builder()
+                                .text("+")
+                                .callbackData(name() + ":inc")
+                                .build()
                 ),
-                List.of(InlineKeyboardButton.builder().text("‹ Назад").callbackData("ai_trading_backtesting_config").build())
+                List.of(
+                        InlineKeyboardButton.builder()
+                                .text("‹ Назад")
+                                // возвращаемся в главное меню бэктеста
+                                .callbackData("ai_trading_backtesting_config")
+                                .build()
+                )
         )).build();
 
         return SendMessage.builder()
@@ -47,14 +60,23 @@ public class AiTradingBacktestingSetLeverageState implements MenuState {
 
     @Override
     public String handleInput(Update update) {
-        String data = update.getCallbackQuery().getData();
-        Long chatId = update.getCallbackQuery().getMessage().getChatId();
+        String data   = update.getCallbackQuery().getData();
+        Long   chatId = update.getCallbackQuery().getMessage().getChatId();
 
+        // Если нажали «‹ Назад» — возвращаемся в меню конфигурации бэктеста
+        if ("ai_trading_backtesting_config".equals(data)) {
+            return "ai_trading_backtesting_config";
+        }
+
+        // Иначе — меняем плечо и остаёмся в этом же состоянии
         BacktestSettings s = btService.getOrCreate(chatId);
         int lev = s.getLeverage();
 
-        if (data.endsWith(":inc")) lev += 1;
-        else if (data.endsWith(":dec")) lev = Math.max(1, lev - 1);
+        if (data.endsWith(":inc")) {
+            lev += 1;
+        } else if (data.endsWith(":dec")) {
+            lev = Math.max(1, lev - 1);
+        }
 
         btService.updateLeverage(chatId, lev);
         return name();

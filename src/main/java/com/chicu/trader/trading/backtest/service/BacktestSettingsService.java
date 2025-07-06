@@ -19,4 +19,6 @@ public interface BacktestSettingsService {
     void updateCachedCandlesLimit(Long chatId, int limit);
 
     void updateLeverage(Long chatId, int leverage);
+
+    void updateSlippage(Long chatId, Double slippagePct);
 }
