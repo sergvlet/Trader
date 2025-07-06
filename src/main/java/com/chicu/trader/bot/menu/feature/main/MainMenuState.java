@@ -21,7 +21,7 @@ public class MainMenuState implements MenuState {
                         List.of(
                                 InlineKeyboardButton.builder()
                                         .text("🤖 AI-торговля")
-                                        .callbackData("ai_trading_settings")
+                                        .callbackData("ai_trading")
                                         .build(),
                                 InlineKeyboardButton.builder()
                                         .text("✋ Ручная торговля")
@@ -68,7 +68,7 @@ public class MainMenuState implements MenuState {
         if (update.hasCallbackQuery()) {
             String data = update.getCallbackQuery().getData();
             return switch (data) {
-                case "ai_trading_settings" -> "ai_trading_settings";
+                case "ai_trading" -> "ai_trading";
                 case "manual_trading_settings" -> "manual_trading_settings";
                 case "about" -> "about";
                 case "register" -> "register";
