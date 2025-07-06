@@ -4,6 +4,7 @@ import com.chicu.trader.bot.config.AiTradingDefaults;
 import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -67,7 +68,7 @@ public class AiTradingCandlesLimitState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         String data = update.getCallbackQuery().getData();
         Long chatId = update.getCallbackQuery().getMessage().getChatId();
         AiTradingSettings s = settingsService.getOrCreate(chatId);

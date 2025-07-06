@@ -6,6 +6,7 @@ import com.chicu.trader.bot.service.UserSettingsService;
 import com.chicu.trader.trading.entity.ProfitablePair;
 import com.chicu.trader.trading.service.ProfitablePairService;
 import com.chicu.trader.dto.BinancePairDto;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -84,7 +85,7 @@ public class AiTradingPairsListState implements MenuState {
                     .callbackData("pair_page_" + (currentPage + 1))
                     .build());
         }
-        if (!navRow.isEmpty()) rows.add(navRow);
+        rows.add(navRow);
 
         rows.add(List.of(InlineKeyboardButton.builder()
                 .text("💾 Сохранить")
@@ -100,10 +101,10 @@ public class AiTradingPairsListState implements MenuState {
         if (selected.isEmpty()) {
             info.append("_Пары не выбраны._\n\n");
         } else {
-            info.append("✅ *Выбрано:* `" + String.join(", ", selected) + "`\n\n");
+            info.append("✅ *Выбрано:* `").append(String.join(", ", selected)).append("`\n\n");
         }
 
-        info.append("*Страница " + (currentPage + 1) + "/" + totalPages + "*\n");
+        info.append("*Страница ").append(currentPage + 1).append("/").append(totalPages).append("*\n");
         for (BinancePairDto pair : pagePairs) {
             String arrow = pair.getPriceChange() > 0 ? "📈" : pair.getPriceChange() < 0 ? "📉" : "➖";
             info.append(String.format("%s `%s` — `$%.2f` (%+.2f%%)\n",
@@ -119,7 +120,7 @@ public class AiTradingPairsListState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         if (!update.hasCallbackQuery()) return name();
         String data = update.getCallbackQuery().getData();
         Long chatId = update.getCallbackQuery().getMessage().getChatId();

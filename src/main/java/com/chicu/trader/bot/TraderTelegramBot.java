@@ -7,7 +7,6 @@ import com.chicu.trader.config.TelegramBotProperties;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
@@ -27,7 +26,6 @@ public class TraderTelegramBot extends TelegramLongPollingBot {
 
     private final TelegramBotProperties props;
     private final MenuService menuService;
-    private final ApplicationEventPublisher publisher;
     private final List<CallbackCommand> callbackCommands;
 
     private Map<String, CallbackCommand> callbackCommandMap;

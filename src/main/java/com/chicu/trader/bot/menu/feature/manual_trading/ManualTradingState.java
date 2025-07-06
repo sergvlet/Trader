@@ -2,6 +2,7 @@ package com.chicu.trader.bot.menu.feature.manual_trading;
 
 import com.chicu.trader.bot.menu.core.MenuService;
 import com.chicu.trader.bot.menu.core.MenuState;
+import lombok.NonNull;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -55,7 +56,7 @@ public class ManualTradingState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         if (!update.hasCallbackQuery()) {
             return name();
         }

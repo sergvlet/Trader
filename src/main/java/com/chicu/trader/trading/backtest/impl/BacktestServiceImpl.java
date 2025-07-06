@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/trading/backtest/impl/BacktestServiceImpl.java
 package com.chicu.trader.trading.backtest.impl;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
@@ -8,102 +7,193 @@ import com.chicu.trader.strategy.StrategyRegistry;
 import com.chicu.trader.strategy.StrategySettings;
 import com.chicu.trader.strategy.TradeStrategy;
 import com.chicu.trader.trading.backtest.BacktestResult;
-import com.chicu.trader.trading.backtest.BacktestService;
+import com.chicu.trader.trading.backtest.service.BacktestService;
+import com.chicu.trader.trading.backtest.service.BacktestSettingsService;
 import com.chicu.trader.trading.entity.ProfitablePair;
+import com.chicu.trader.trading.model.BacktestSettings;
 import com.chicu.trader.trading.model.Candle;
 import com.chicu.trader.trading.service.CandleService;
 import com.chicu.trader.trading.service.ProfitablePairService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class BacktestServiceImpl implements BacktestService {
 
+    private static final Logger log = LoggerFactory.getLogger(BacktestServiceImpl.class);
+
     private final AiTradingSettingsService settingsService;
-    private final ProfitablePairService pairService;
-    private final CandleService candleService;
-    private final StrategyRegistry strategyRegistry;
+    private final ProfitablePairService      pairService;
+    private final CandleService             candleService;
+    private final StrategyRegistry          strategyRegistry;
+    private final BacktestSettingsService   backtestSettingsService;
 
     @Override
     public BacktestResult runBacktest(Long chatId) {
-        AiTradingSettings settings = settingsService.getSettingsOrThrow(chatId);
-        // Настройки стратегии (тип-специфичные параметры)
-        StrategySettings strategySettings =
-                strategyRegistry.getSettings(settings.getStrategy(), chatId);
-        TradeStrategy strategy =
-                strategyRegistry.getStrategy(settings.getStrategy());
+        log.info("=== Starting backtest for chatId={} ===", chatId);
 
-        // Timeframe и лимит свечей берём из общих настроек
-        Duration interval = parseTimeframe(settings.getTimeframe());
-        int limit = settings.getCachedCandlesLimit() != null
-                ? settings.getCachedCandlesLimit() : 0;
-        double commissionPct = settings.getCommission() != null
-                ? settings.getCommission() : 0.0;
+        // 1) Пользовательские настройки
+        AiTradingSettings aiSettings = settingsService.getSettingsOrThrow(chatId);
+        BacktestSettings  btSettings = backtestSettingsService.getOrCreate(chatId);
+
+        log.info("Using strategy='{}', symbols='{}'",
+                aiSettings.getStrategy(), aiSettings.getSymbols());
+        log.info("Backtest settings: timeframe='{}', limit={}, commissionPct={}, dateRange={}→{}",
+                btSettings.getTimeframe(),
+                btSettings.getCachedCandlesLimit(),
+                btSettings.getCommissionPct(),
+                btSettings.getStartDate(),
+                btSettings.getEndDate());
+
+        // 2) Стратегия
+        StrategySettings strategySettings =
+                strategyRegistry.getSettings(aiSettings.getStrategy(), chatId);
+        TradeStrategy strategy =
+                strategyRegistry.getStrategy(aiSettings.getStrategy());
+
+        // 3) Параметры бэктеста
+        Duration  interval      = parseTimeframe(btSettings.getTimeframe());
+        int       limit         = btSettings.getCachedCandlesLimit();
+        double    commissionPct = btSettings.getCommissionPct();
+        LocalDate startDate     = btSettings.getStartDate();
+        LocalDate endDate       = btSettings.getEndDate();
+
+        // 4) Формируем список символов
+        List<String> symbolsToTest;
+        if (aiSettings.getSymbols() != null && !aiSettings.getSymbols().isBlank()) {
+            symbolsToTest = Arrays.stream(aiSettings.getSymbols().split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toList());
+        } else {
+            symbolsToTest = pairService.getActivePairs(chatId).stream()
+                    .map(ProfitablePair::getSymbol)
+                    .collect(Collectors.toList());
+        }
+
+        if (symbolsToTest.isEmpty()) {
+            log.warn("No symbols to test for chatId={}", chatId);
+        } else {
+            log.info("Symbols to test: {}", symbolsToTest);
+        }
 
         BacktestResult result = new BacktestResult();
-        List<ProfitablePair> activePairs = pairService.getActivePairs(chatId);
 
-        for (ProfitablePair pair : activePairs) {
-            List<Candle> candles = candleService.loadHistory(
-                    pair.getSymbol(), interval, limit);
-            if (candles == null || candles.size() < 2) continue;
+        // 5) Пробегаем по каждому символу
+        for (String symbol : symbolsToTest) {
+            log.info(">> Testing symbol='{}'", symbol);
 
-            boolean open = false;
-            Candle entry = null;
-            double tpPct = Optional.ofNullable(pair.getTakeProfitPct()).orElse(0.0);
-            double slPct = Optional.ofNullable(pair.getStopLossPct()).orElse(0.0);
+            List<Candle> rawCandles = candleService.loadHistory(symbol, interval, limit);
+            log.info("Loaded {} raw candles for symbol='{}'", rawCandles.size(), symbol);
 
-            // простейший backtest с одним открытым лотом
+            List<Candle> candles = filterByDateRange(rawCandles, startDate, endDate);
+            log.info("{} candles remain after date filter [{}→{}] for '{}'",
+                    candles.size(), startDate, endDate, symbol);
+
+            if (candles.size() < 2) {
+                log.warn("Not enough data ({} candles) for '{}', skipping", candles.size(), symbol);
+                continue;
+            }
+
+            boolean open  = false;
+            Candle  entry = null;
+
+            // TP/SL: из ProfitablePair, если она активна:
+            Optional<ProfitablePair> pairOpt = pairService
+                    .getPairsBySymbol(chatId, symbol).stream()
+                    .filter(ProfitablePair::getActive)
+                    .findFirst();
+            double tpPct = pairOpt.map(ProfitablePair::getTakeProfitPct).orElse(2.0);
+            double slPct = pairOpt.map(ProfitablePair::getStopLossPct).orElse(1.0);
+
+            // 6) Цикл бэктеста
             for (int i = 1; i < candles.size(); i++) {
                 List<Candle> history = candles.subList(0, i + 1);
-                SignalType signal = strategy.evaluate(history, strategySettings);
-                Candle current = candles.get(i);
+                SignalType   signal  = strategy.evaluate(history, strategySettings);
+                Candle       current = candles.get(i);
+
+                log.debug("Signal for '{}' at {}: {}",
+                        symbol, Instant.ofEpochMilli(current.getCloseTime()), signal);
 
                 if (signal == SignalType.BUY && !open) {
-                    open = true;
+                    open  = true;
                     entry = current;
+                    log.info("Opened BUY on '{}' at price {} (time={})",
+                            symbol, entry.getClose(), Instant.ofEpochMilli(entry.getCloseTime()));
                 } else if (open && entry != null) {
                     double entryPrice = entry.getClose();
-                    double tpPrice = entryPrice * (1 + tpPct / 100.0);
-                    double slPrice = entryPrice * (1 - slPct / 100.0);
+                    double high       = current.getHigh();
+                    double low        = current.getLow();
+                    double tpPrice    = entryPrice * (1 + tpPct / 100.0);
+                    double slPrice    = entryPrice * (1 - slPct / 100.0);
 
-                    boolean tpHit = current.getHigh() >= tpPrice;
-                    boolean slHit = current.getLow() <= slPrice;
+                    boolean tpHit = high >= tpPrice;
+                    boolean slHit = low  <= slPrice;
                     if (tpHit || slHit) {
                         double exitPrice = tpHit ? tpPrice : slPrice;
                         result.addTrade(new BacktestResult.Trade(
-                                pair.getSymbol(),
+                                symbol,
                                 entry.getCloseTime(),
                                 entryPrice,
                                 current.getCloseTime(),
                                 exitPrice,
                                 commissionPct
                         ));
-                        open = false;
+                        log.info("Closed '{}' at price {} (time={}) — TP hit={}, SL hit={}",
+                                symbol, exitPrice, Instant.ofEpochMilli(current.getCloseTime()),
+                                tpHit, slHit);
+                        open  = false;
                         entry = null;
                     }
                 }
             }
         }
+
+        log.info("=== Backtest complete for chatId={}, total trades={} ===",
+                chatId, result.getTotalTrades());
         return result;
     }
 
+    // === Вспомогательные методы ===
+
     private Duration parseTimeframe(String tf) {
-        if (tf == null || tf.isBlank()) {
-            return Duration.ofMinutes(1);
-        }
-        String t = tf.trim().toLowerCase();
-        long val = Long.parseLong(t.substring(0, t.length() - 1));
-        return switch (t.charAt(t.length() - 1)) {
-            case 'm' -> Duration.ofMinutes(val);
-            case 'h' -> Duration.ofHours(val);
-            case 'd' -> Duration.ofDays(val);
-            default -> throw new IllegalArgumentException("Unsupported timeframe: " + tf);
+        if (tf == null || tf.isBlank()) return Duration.ofMinutes(1);
+        tf = tf.trim().toLowerCase();
+        long v = Long.parseLong(tf.substring(0, tf.length() - 1));
+        return switch (tf.charAt(tf.length() - 1)) {
+            case 'm' -> Duration.ofMinutes(v);
+            case 'h' -> Duration.ofHours(v);
+            case 'd' -> Duration.ofDays(v);
+            default -> throw new IllegalArgumentException("Неподдерживаемый таймфрейм: " + tf);
         };
+    }
+
+    private List<Candle> filterByDateRange(
+            List<Candle> rawCandles,
+            LocalDate    startDate,
+            LocalDate    endDate
+    ) {
+        ZoneId zone          = ZoneId.systemDefault();
+        Instant startInstant = startDate.atStartOfDay(zone).toInstant();
+        Instant endInstant   = endDate.plusDays(1).atStartOfDay(zone).toInstant().minusNanos(1);
+
+        return rawCandles.stream()
+                .filter(c -> {
+                    Instant ts = Instant.ofEpochMilli(c.getCloseTime());
+                    return !ts.isBefore(startInstant) && !ts.isAfter(endInstant);
+                })
+                .collect(Collectors.toList());
     }
 }

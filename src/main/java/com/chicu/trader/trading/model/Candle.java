@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class Candle {
     @Id
-    private String id; // обязательно нужно поле для ID!
+    private String id;
 
     private String symbol;
     private long openTime;

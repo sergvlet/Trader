@@ -1,6 +1,7 @@
 package com.chicu.trader.bot.menu.feature.ai_trading.pairs;
 
 import com.chicu.trader.bot.menu.core.MenuState;
+import lombok.NonNull;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -48,7 +49,7 @@ public class AiTradingPairsState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         if (!update.hasCallbackQuery()) return name();
 
         String data = update.getCallbackQuery().getData();

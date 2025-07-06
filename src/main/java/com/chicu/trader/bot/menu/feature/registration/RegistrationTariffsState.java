@@ -5,6 +5,7 @@ import com.chicu.trader.bot.entity.User;
 import com.chicu.trader.bot.menu.core.MenuService;
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.repository.UserRepository;
+import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -86,7 +87,7 @@ public class RegistrationTariffsState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         if (!update.hasCallbackQuery()) {
             return name();
         }

@@ -4,6 +4,7 @@ package com.chicu.trader.bot.menu.feature.network;
 import com.chicu.trader.bot.menu.core.MenuService;
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.UserSettingsService;
+import lombok.NonNull;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -85,7 +86,7 @@ public class NetworkSettingsState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         if (!update.hasCallbackQuery()) return name();
         String data = update.getCallbackQuery().getData();
 

@@ -2,6 +2,7 @@ package com.chicu.trader.bot.menu.feature.ai_trading;
 
 import com.chicu.trader.bot.menu.core.MenuService;
 import com.chicu.trader.bot.menu.core.MenuState;
+import lombok.NonNull;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -98,7 +99,7 @@ public class AiTradingSettingsState implements MenuState {
 
         InlineKeyboardButton backtestBtn = InlineKeyboardButton.builder()
                 .text("🔬 Backtesting")
-                .callbackData("ai_trading_settings_backtesting")
+                .callbackData("ai_trading_backtesting_config")
                 .build();
 
         InlineKeyboardButton mlStatsBtn = InlineKeyboardButton.builder()
@@ -152,7 +153,7 @@ public class AiTradingSettingsState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         if (!update.hasCallbackQuery()) {
             return name();
         }
@@ -173,7 +174,7 @@ public class AiTradingSettingsState implements MenuState {
             case "ai_trading_settings_model_version" -> "ai_trading_settings_model_version";
             case "ai_trading_settings_strategy" -> "ai_trading_settings_strategy";
             case "ai_trading_settings_leverage" -> "ai_trading_settings_leverage";
-            case "ai_trading_settings_backtesting" -> "ai_trading_settings_backtesting";
+            case "ai_trading_backtesting_config" -> "ai_trading_backtesting_config";
             case "ai_trading_settings_cached_candles_limit" -> "ai_trading_settings_cached_candles_limit";
             case "ai_trading_stats" -> "ai_trading_stats";
             case "ai_training_test_train" -> "ai_training_test_train";

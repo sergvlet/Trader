@@ -5,6 +5,7 @@ package com.chicu.trader.bot.menu.feature.ai_trading.strategy.rsiema;
 import com.chicu.trader.strategy.rsiema.model.RsiEmaStrategySettings;
 import com.chicu.trader.strategy.rsiema.service.RsiEmaStrategySettingsService;
 import com.chicu.trader.bot.menu.core.MenuState;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -79,7 +80,7 @@ public class RsiEmaConfigState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update upd) {
+    public @NonNull String handleInput(Update upd) {
         if (!upd.hasCallbackQuery()) {
             return name();
         }

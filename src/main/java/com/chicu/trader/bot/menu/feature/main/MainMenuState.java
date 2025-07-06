@@ -1,6 +1,7 @@
 package com.chicu.trader.bot.menu.feature.main;
 
 import com.chicu.trader.bot.menu.core.MenuState;
+import lombok.NonNull;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -49,7 +50,7 @@ public class MainMenuState implements MenuState {
 
     @Override
     public String name() {
-        return "main"; // Должен совпадать с fallback в MenuService
+        return "main";
     }
 
     @Override
@@ -63,7 +64,7 @@ public class MainMenuState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         if (update.hasCallbackQuery()) {
             String data = update.getCallbackQuery().getData();
             return switch (data) {
@@ -72,7 +73,7 @@ public class MainMenuState implements MenuState {
                 case "about" -> "about";
                 case "register" -> "register";
                 case "plans" -> "plans";
-                default -> name(); // fallback на главное меню
+                default -> name();
             };
         }
         return name();

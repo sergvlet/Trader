@@ -3,6 +3,7 @@ package com.chicu.trader.bot.menu.feature.ai_trading;
 
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
+import lombok.NonNull;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -28,7 +29,7 @@ public class AiTradingModelVersionManualState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update u) {
+    public @NonNull String handleInput(Update u) {
         if (u.hasMessage() && u.getMessage().hasText()) {
             Long cid = u.getMessage().getChatId();
             String txt = u.getMessage().getText().trim();

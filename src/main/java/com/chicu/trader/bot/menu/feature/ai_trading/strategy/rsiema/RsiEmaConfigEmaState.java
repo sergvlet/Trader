@@ -3,6 +3,7 @@ package com.chicu.trader.bot.menu.feature.ai_trading.strategy.rsiema;
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.strategy.rsiema.model.RsiEmaStrategySettings;
 import com.chicu.trader.strategy.rsiema.service.RsiEmaStrategySettingsService;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -65,7 +66,7 @@ public class RsiEmaConfigEmaState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         if (!update.hasCallbackQuery()) return name();
 
         String data = update.getCallbackQuery().getData();

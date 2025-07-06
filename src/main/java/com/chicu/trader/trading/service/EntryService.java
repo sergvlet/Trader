@@ -101,7 +101,7 @@ public class EntryService {
                         .quantity(qtyBd)
                         .takeProfitPrice(tp)
                         .stopLossPrice(sl)
-                        .closed(false)       // <-- здесь
+                        .closed(false)
                         .build()
         );
     }

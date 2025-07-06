@@ -1,5 +1,6 @@
 package com.chicu.trader.bot.menu.core;
 
+import lombok.NonNull;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
 
@@ -15,8 +16,9 @@ public interface MenuState {
 
     /**
      * Обработать апдейт (callback или сообщение).
+     *
      * @return имя следующего состояния, или "BACK" — чтобы вернуться назад,
      * или своё name() — чтобы остаться.
      */
-    String handleInput(Update update);
+    @NonNull String handleInput(Update update);
 }

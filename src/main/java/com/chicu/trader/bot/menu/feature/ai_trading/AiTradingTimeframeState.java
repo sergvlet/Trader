@@ -4,6 +4,7 @@ import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.bot.config.AiTradingDefaults;
 import com.chicu.trader.bot.entity.AiTradingSettings;
+import lombok.NonNull;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -84,7 +85,7 @@ public class AiTradingTimeframeState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         if (!update.hasCallbackQuery()) {
             return name();
         }

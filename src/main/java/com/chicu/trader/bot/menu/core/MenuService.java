@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class MenuService {
 
     public static final String BACK = "BACK";
-    public static final String MAIN_MENU = "main";  // должно существовать состояние с name() = "main"
+    public static final String MAIN_MENU = "main";
     public static final String STATE_NETWORK_SETTINGS = "network_settings";
 
     private final List<MenuState> states;

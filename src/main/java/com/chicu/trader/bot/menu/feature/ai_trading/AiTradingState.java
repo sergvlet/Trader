@@ -7,6 +7,7 @@ import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.trading.executor.TradingExecutor;
 import com.chicu.trader.trading.entity.ProfitablePair;
 import com.chicu.trader.trading.repository.ProfitablePairRepository;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -94,7 +95,7 @@ public class AiTradingState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         if (!update.hasCallbackQuery()) return name();
 
         Long chatId = update.getCallbackQuery().getMessage().getChatId();

@@ -1,9 +1,9 @@
 // src/main/java/com/chicu/trader/bot/menu/feature/network/NetworkEnterApiState.java
 package com.chicu.trader.bot.menu.feature.network;
 
-import com.chicu.trader.bot.menu.core.MenuService;
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.UserSettingsService;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -28,7 +28,7 @@ public class NetworkEnterApiState implements MenuState {
                 .build();
     }
     @Override
-    public String handleInput(Update upd) {
+    public @NonNull String handleInput(Update upd) {
         if (upd.hasMessage() && upd.getMessage().hasText()) {
             Long id = upd.getMessage().getChatId();
             settings.setApiKey(id, upd.getMessage().getText().trim());

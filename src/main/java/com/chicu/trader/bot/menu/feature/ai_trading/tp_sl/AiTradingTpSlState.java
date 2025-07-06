@@ -7,6 +7,7 @@ import com.chicu.trader.bot.config.AiTradingDefaults;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import lombok.NonNull;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -103,7 +104,7 @@ public class AiTradingTpSlState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         String data   = update.getCallbackQuery().getData();
         Long   chatId = update.getCallbackQuery().getMessage().getChatId();
         AiTradingSettings s = settingsService.getOrCreate(chatId);

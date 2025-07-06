@@ -5,6 +5,7 @@ import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.bot.service.AiTradingSettingsService;
 import com.chicu.trader.strategy.StrategyType;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -60,7 +61,7 @@ public class AiTradingStrategyState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         if (!update.hasCallbackQuery()) {
             return name();
         }
