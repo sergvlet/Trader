@@ -3,6 +3,7 @@ package com.chicu.trader.bot.menu.feature.ai_trading;
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.trading.backtest.BacktestResult;
 import com.chicu.trader.trading.backtest.service.BacktestService;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -38,7 +39,7 @@ public class AiTradingBacktestingRunState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         return "ai_trading_backtesting_config"; // Возврат в меню настроек бэктеста
     }
 

@@ -1,5 +1,5 @@
 // src/main/java/com/chicu/trader/bot/menu/feature/ai_trading/strategy/rsiema/AiTradingStrategyState.java
-package com.chicu.trader.bot.menu.feature.ai_trading.strategy.rsiema;
+package com.chicu.trader.bot.menu.feature.ai_trading.strategy;
 
 import com.chicu.trader.bot.entity.AiTradingSettings;
 import com.chicu.trader.bot.menu.core.MenuState;

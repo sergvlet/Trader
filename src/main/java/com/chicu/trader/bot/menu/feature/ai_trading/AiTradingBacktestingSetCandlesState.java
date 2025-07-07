@@ -3,6 +3,7 @@ package com.chicu.trader.bot.menu.feature.ai_trading;
 import com.chicu.trader.bot.menu.core.MenuState;
 import com.chicu.trader.trading.backtest.service.BacktestSettingsService;
 import com.chicu.trader.trading.model.BacktestSettings;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -59,7 +60,7 @@ public class AiTradingBacktestingSetCandlesState implements MenuState {
     }
 
     @Override
-    public String handleInput(Update update) {
+    public @NonNull String handleInput(Update update) {
         String data   = update.getCallbackQuery().getData();
         Long   chatId = update.getCallbackQuery().getMessage().getChatId();
 

@@ -42,6 +42,14 @@ public class ScalpingStrategySettings extends StrategySettings {
     @Column(name = "cached_candles_limit", nullable = false)
     private Integer cachedCandlesLimit;
 
+    /** Новый параметр: множитель порога объёма */
+    @Column(name = "volume_threshold_multiplier", nullable = false)
+    private Double volumeThresholdMultiplier;
+
+    /** Новый параметр: сглаживающий коэффициент для EMA */
+    @Column(name = "ema_smoothing", nullable = false)
+    private Integer emaSmoothing;
+
     @Version
     private Long version;
 
@@ -60,4 +68,3 @@ public class ScalpingStrategySettings extends StrategySettings {
         return cachedCandlesLimit;
     }
 }
-
