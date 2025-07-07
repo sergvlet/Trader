@@ -94,6 +94,7 @@ public class RsiEmaConfigState implements MenuState {
                     "rsi_ema_config_rsi";
             case "rsi_ema_config_ema" ->
                     "rsi_ema_config_ema";
+            case "ai_trading_settings"   -> "ai_trading_settings";
             default -> name();
         };
     }
