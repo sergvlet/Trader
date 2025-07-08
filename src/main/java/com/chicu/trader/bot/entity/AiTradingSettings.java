@@ -112,4 +112,9 @@ public class AiTradingSettings {
 
     @Version
     private Long version;
+
+    public boolean isTestMode() {
+        return "testnet".equalsIgnoreCase(this.networkMode);
+    }
+
 }

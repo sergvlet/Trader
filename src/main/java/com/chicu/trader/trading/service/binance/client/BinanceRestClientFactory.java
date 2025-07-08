@@ -8,7 +8,8 @@ import org.springframework.stereotype.Component;
 /**
  * Фабрика для создания BinanceRestClient:
  * - приватного, с ключами пользователя (для торговли),
- * - публичного, без ключей (только market-data).
+ * - публичного, без ключей (только market-data),
+ * - произвольного (по явно заданным ключам и testnet-флагу).
  */
 @Component
 @RequiredArgsConstructor
@@ -18,7 +19,7 @@ public class BinanceRestClientFactory {
     private final BinanceHttpClientFactory httpClientFactory;
 
     /**
-     * Приватный клиент с ключами из юзерских настроек.
+     * Клиент с ключами из настроек пользователя.
      */
     public BinanceRestClient getClient(Long chatId) {
         UserSettings settings = userSettingsService.getSettings(chatId);
@@ -31,7 +32,6 @@ public class BinanceRestClientFactory {
                 ? settings.getTestSecretKey()
                 : settings.getRealSecretKey();
 
-        // Создаём HTTP-клиент с ключами и флагом testnet
         BinanceHttpClient httpClient = httpClientFactory.create(apiKey, secretKey, isTestnet);
         return new BinanceRestClient(apiKey, secretKey, isTestnet, httpClient);
     }
@@ -40,8 +40,15 @@ public class BinanceRestClientFactory {
      * Публичный клиент без ключей (использует production-эндпоинты).
      */
     public BinanceRestClient getPublicClient() {
-        // false — значит production, но ключи не нужны
         BinanceHttpClient httpClient = httpClientFactory.create(null, null, false);
         return new BinanceRestClient(null, null, false, httpClient);
+    }
+
+    /**
+     * Клиент по явным параметрам: ключи + режим.
+     */
+    public BinanceRestClient create(String apiKey, String secretKey, boolean isTestnet) {
+        BinanceHttpClient httpClient = httpClientFactory.create(apiKey, secretKey, isTestnet);
+        return new BinanceRestClient(apiKey, secretKey, isTestnet, httpClient);
     }
 }

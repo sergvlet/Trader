@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/bot/TraderTelegramBot.java
 package com.chicu.trader.bot;
 
 import com.chicu.trader.bot.command.CallbackCommand;
@@ -17,6 +16,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -37,7 +37,7 @@ public class TraderTelegramBot extends TelegramLongPollingBot {
     }
 
     @Override public String getBotUsername() { return props.getUsername(); }
-    @Override public String getBotToken()    { return props.getToken();   }
+    @Override public String getBotToken()    { return props.getToken(); }
 
     @Override
     public void onUpdateReceived(Update update) {
@@ -51,18 +51,20 @@ public class TraderTelegramBot extends TelegramLongPollingBot {
 
         // 1) вывести накопленные нотификации
         try {
-            menuService.popNotice(chatId).ifPresent(this::executeUnchecked);
+            Optional<SendMessage> noticeOpt = menuService.popNotice(chatId);
+            noticeOpt.ifPresent(this::executeUnchecked);
         } catch (Exception e) {
             log.error("Ошибка popNotice для chatId={}", chatId, e);
         }
 
-        // 2) дальше в зависимости от типа входа
+        // 2) обработка input
         if (update.hasCallbackQuery()) {
             handleCallback(update, chatId);
         } else {
             handleMessage(update, chatId);
         }
     }
+
 
     private void handleCallback(Update update, Long chatId) {
         String data = update.getCallbackQuery().getData();
@@ -83,7 +85,7 @@ public class TraderTelegramBot extends TelegramLongPollingBot {
             nextState = menuService.handleInput(update);
         } catch (Exception e) {
             log.error("Ошибка handleInput (callback) data={}", data, e);
-            nextState = "main";  // <-- имя вашего корневого состояния
+            nextState = MenuService.MAIN_MENU;
         }
 
         // c) render & edit
@@ -94,13 +96,14 @@ public class TraderTelegramBot extends TelegramLongPollingBot {
                     .messageId(update.getCallbackQuery().getMessage().getMessageId())
                     .text(rendered.getText())
                     .parseMode(rendered.getParseMode())
-                    .replyMarkup((InlineKeyboardMarkup) rendered.getReplyMarkup())
+                    .replyMarkup(rendered.getReplyMarkup() instanceof InlineKeyboardMarkup
+                            ? (InlineKeyboardMarkup) rendered.getReplyMarkup()
+                            : null)
                     .build();
             executeUnchecked(edit);
         } catch (Exception e) {
             log.error("Ошибка renderState/executeUnchecked (callback)", e);
-            // на всякий случай сбросить в главное
-            executeUnchecked(menuService.renderState("main", chatId));
+            executeUnchecked(menuService.renderState(MenuService.MAIN_MENU, chatId));
         }
     }
 
@@ -110,7 +113,7 @@ public class TraderTelegramBot extends TelegramLongPollingBot {
             nextState = menuService.handleInput(update);
         } catch (Exception e) {
             log.error("Ошибка handleInput (message)", e);
-            nextState = "main";  // <-- имя вашего корневого состояния
+            nextState = MenuService.MAIN_MENU;
         }
 
         try {
@@ -118,7 +121,7 @@ public class TraderTelegramBot extends TelegramLongPollingBot {
             executeUnchecked(out);
         } catch (Exception e) {
             log.error("Ошибка renderState/executeUnchecked (message)", e);
-            executeUnchecked(menuService.renderState("main", chatId));
+            executeUnchecked(menuService.renderState(MenuService.MAIN_MENU, chatId));
         }
     }
 
@@ -137,8 +140,7 @@ public class TraderTelegramBot extends TelegramLongPollingBot {
         } catch (org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException e) {
             String resp = e.getApiResponse();
             if (resp != null && resp.contains("message is not modified")) {
-                // benign
-                return;
+                return; // benign error — ignore
             }
             log.error("Telegram API request failed: {}", resp, e);
         } catch (org.telegram.telegrambots.meta.exceptions.TelegramApiException e) {

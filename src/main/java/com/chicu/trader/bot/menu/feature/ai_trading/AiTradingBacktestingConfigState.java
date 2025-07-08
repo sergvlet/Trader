@@ -112,8 +112,8 @@ public class AiTradingBacktestingConfigState implements MenuState {
                 .append("Выберите, что хотите изменить:");
 
         // Выводим уведомление о предыдущем результате, если есть
-        menuService.popNotice(chatId)
-                .ifPresent(n -> text.append("\n\n").append(n.getText()));
+        menuService.popNotice(chatId).ifPresent(msg -> text.append("\n\n").append(msg.getText()));
+
 
         // Кнопки: три в ряду
         InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder().keyboard(List.of(

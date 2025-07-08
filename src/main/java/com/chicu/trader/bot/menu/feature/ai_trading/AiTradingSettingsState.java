@@ -77,6 +77,12 @@ public class AiTradingSettingsState implements MenuState {
                 .callbackData("ai_trading_settings_notifications_toggle")
                 .build();
 
+        InlineKeyboardButton balanceBtn = InlineKeyboardButton.builder()
+                .text("💰 Баланс")
+                .callbackData("ai_trading_settings_balance")
+                .build();
+
+
         InlineKeyboardButton modelVersionBtn = InlineKeyboardButton.builder()
                 .text("🧠 Версия модели")
                 .callbackData("ai_trading_settings_model_version")
@@ -131,6 +137,8 @@ public class AiTradingSettingsState implements MenuState {
                         List.of(backtestBtn),
                         List.of(candlesLimitBtn, mlStatsBtn),
                         List.of(testTrainBtn),
+                        List.of(balanceBtn),
+
                         List.of(backBtn)
                 ))
                 .build();
@@ -178,6 +186,8 @@ public class AiTradingSettingsState implements MenuState {
             case "ai_trading_settings_cached_candles_limit" -> "ai_trading_settings_cached_candles_limit";
             case "ai_trading_stats" -> "ai_trading_stats";
             case "ai_training_test_train" -> "ai_training_test_train";
+            case "ai_trading_settings_balance" -> "ai_trading_settings_balance";
+
             case "ai_trading" -> MenuService.BACK;
             default -> name();
         };
