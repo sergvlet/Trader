@@ -44,7 +44,6 @@ public class FallbackMonitorService {
                 if (shouldExit) {
                     log.warn("⚠️ FallbackExit: символ={}, current={}, TP={}, SL={}",
                             trade.getSymbol(), currentPrice, tp, sl);
-                    // Теперь вызываем без передачи currentPrice — метод сам его возьмет
                     tradingExitManager.forceExit(trade);
                 }
             } catch (Exception e) {

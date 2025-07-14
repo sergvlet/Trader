@@ -83,8 +83,6 @@ public class ProfitOptimizer {
                 balance *= 1 + tpPct / 100.0;
             } else if (next <= sl) {
                 balance *= 1 - slPct / 100.0;
-            } else {
-                // ничего не делаем, позиция не закрылась
             }
         }
         return balance;

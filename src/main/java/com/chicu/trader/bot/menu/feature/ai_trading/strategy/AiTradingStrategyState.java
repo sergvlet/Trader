@@ -73,10 +73,11 @@ public class AiTradingStrategyState implements MenuState {
             String code = data.substring("strategy_select:".length());
             settingsService.updateStrategy(chatId, code);
 
-            // переходим в подменю, если есть для стратегии
+            // переходим подменю, если есть для стратегии
             return switch (StrategyType.findByCode(code)) {
                 case RSI_EMA -> "rsi_ema_config";
                 case SCALPING -> "scalping_config";
+                case FIBONACCI_GRID -> "ai_trading_fibonacci_config";
                 default -> name();
             };
         }

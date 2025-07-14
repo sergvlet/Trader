@@ -1,5 +1,6 @@
 package com.chicu.trader.strategy;
 
+import com.chicu.trader.strategy.fibonacciGridS.FibonacciGridStrategy;
 import com.chicu.trader.strategy.ml.MlModelStrategy;
 import com.chicu.trader.strategy.rsiema.RsiEmaStrategy;
 import com.chicu.trader.strategy.scalping.ScalpingStrategy;
@@ -17,6 +18,7 @@ public class StrategyRegistry {
     private final MlModelStrategy mlModelStrategy;
     private final RsiEmaStrategy rsiEmaStrategy;
     private final ScalpingStrategy scalpingStrategy;
+    private final FibonacciGridStrategy fibonacciGridStrategy;
 
     private final Map<StrategyType, TradeStrategy> registry = new EnumMap<>(StrategyType.class);
 
@@ -28,6 +30,7 @@ public class StrategyRegistry {
         registry.put(StrategyType.ML_MODEL, mlModelStrategy);
         registry.put(StrategyType.RSI_EMA, rsiEmaStrategy);
         registry.put(StrategyType.SCALPING, scalpingStrategy);
+        registry.put(StrategyType.FIBONACCI_GRID, fibonacciGridStrategy);
     }
 
     /**

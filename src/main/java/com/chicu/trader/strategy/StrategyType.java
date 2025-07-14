@@ -1,4 +1,3 @@
-// src/main/java/com/chicu/trader/strategy/StrategyType.java
 package com.chicu.trader.strategy;
 
 import lombok.Getter;
@@ -17,6 +16,7 @@ public enum StrategyType {
     ML_MODEL("ML-модель"),
     SWING("Свинг"),
     VOLUME_BASED("Объёмная"),
+    FIBONACCI_GRID("Сетка Фибоначчи"),
     DEFAULT("По умолчанию");
 
     private final String label;
